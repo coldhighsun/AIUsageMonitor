@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/.github/">
+    <File Path=".github/workflows/ci.yml" />
+  </Folder>
+  <Folder Name="/assets/">
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="CLAUDE.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+    <File Path="THIRD-PARTY-NOTICES.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/AIUsageMonitor.Cli/AIUsageMonitor.Cli.csproj" />
+    <Project Path="src/AIUsageMonitor.Core/AIUsageMonitor.Core.csproj" />
+    <Project Path="src/AIUsageMonitor.WPF/AIUsageMonitor.WPF.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AIUsageMonitor.Core.Tests/AIUsageMonitor.Core.Tests.csproj" />
+  </Folder>
+</Solution>

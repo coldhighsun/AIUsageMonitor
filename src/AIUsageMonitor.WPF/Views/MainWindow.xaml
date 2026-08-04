@@ -1,0 +1,88 @@
+<Window x:Class="AIUsageMonitor.WPF.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+        Title="AI Usage Monitor" Width="1200" Height="800"
+        Background="{StaticResource BackgroundBrush}" WindowStartupLocation="CenterScreen">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="16">
+
+            <!-- Header -->
+            <DockPanel Margin="0,0,0,8">
+                <TextBlock Text="AI Usage Monitor" FontSize="22" FontWeight="Bold"
+                           Foreground="{StaticResource TextPrimaryBrush}" DockPanel.Dock="Left"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <TextBlock Text="From:" Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <DatePicker SelectedDate="{Binding DateFrom}" Width="120" Margin="0,0,12,0"/>
+                    <TextBlock Text="To:" Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <DatePicker SelectedDate="{Binding DateTo}" Width="120" Margin="0,0,12,0"/>
+                    <Button Content="Refresh" Command="{Binding RefreshCommand}"
+                            Padding="12,4" Background="{StaticResource AccentBrush}"
+                            Foreground="White" BorderThickness="0"/>
+                </StackPanel>
+            </DockPanel>
+
+            <!-- KPI Cards -->
+            <UniformGrid Rows="1" Columns="4" Margin="0,8">
+                <Border Style="{StaticResource KpiCard}">
+                    <StackPanel>
+                        <TextBlock Text="TOTAL TOKENS" Style="{StaticResource KpiLabel}"/>
+                        <TextBlock Text="{Binding TotalTokens}" Style="{StaticResource KpiValue}"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource KpiCard}">
+                    <StackPanel>
+                        <TextBlock Text="SESSIONS" Style="{StaticResource KpiLabel}"/>
+                        <TextBlock Text="{Binding TotalSessions}" Style="{StaticResource KpiValue}"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource KpiCard}">
+                    <StackPanel>
+                        <TextBlock Text="MESSAGES" Style="{StaticResource KpiLabel}"/>
+                        <TextBlock Text="{Binding TotalMessages}" Style="{StaticResource KpiValue}"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource KpiCard}">
+                    <StackPanel>
+                        <TextBlock Text="EST. COST" Style="{StaticResource KpiLabel}"/>
+                        <TextBlock Text="{Binding EstimatedCost}" Style="{StaticResource KpiValue}"/>
+                    </StackPanel>
+                </Border>
+            </UniformGrid>
+
+            <!-- Daily Trend -->
+            <TextBlock Text="Daily Usage Trend" Style="{StaticResource SectionTitle}"/>
+            <Border Style="{StaticResource ChartCard}" Height="280">
+                <lvc:CartesianChart Series="{Binding DailyUsageSeries}"
+                                    XAxes="{Binding DailyXAxes}"
+                                    YAxes="{Binding DailyYAxes}"
+                                    AnimationsSpeed="0"
+                                    TooltipPosition="Hidden"/>
+            </Border>
+
+            <!-- Model Distribution + Hourly Activity -->
+            <UniformGrid Rows="1" Columns="2" Margin="0,8">
+                <StackPanel>
+                    <TextBlock Text="Model Distribution" Style="{StaticResource SectionTitle}"/>
+                    <Border Style="{StaticResource ChartCard}" Height="280">
+                        <lvc:PieChart Series="{Binding ModelDistributionSeries}"
+                                      AnimationsSpeed="0"/>
+                    </Border>
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Text="Hourly Activity" Style="{StaticResource SectionTitle}"/>
+                    <Border Style="{StaticResource ChartCard}" Height="280">
+                        <lvc:CartesianChart Series="{Binding HourlyActivitySeries}"
+                                            XAxes="{Binding HourlyXAxes}"
+                                            YAxes="{Binding HourlyYAxes}"
+                                            AnimationsSpeed="0"/>
+                    </Border>
+                </StackPanel>
+            </UniformGrid>
+
+        </StackPanel>
+    </ScrollViewer>
+</Window>
