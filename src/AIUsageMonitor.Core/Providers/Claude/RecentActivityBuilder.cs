@@ -10,7 +10,7 @@ namespace AIUsageMonitor.Core.Providers.Claude;
 /// </summary>
 public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, CostCalculator costCalculator)
 {
-    public RecentActivitySummary Build(IReadOnlyList<string> sessionFiles, TimeSpan window)
+    public RecentActivitySummary Build(IReadOnlyList<string> sessionFiles, TimeSpan window, IProgress<int>? progress = null)
     {
         var now = DateTimeOffset.Now;
         var since = now - window;
@@ -23,7 +23,19 @@ public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, Cos
         var modelUsage = new Dictionary<string, (long Input, long Output, long CacheRead, long CacheCreation)>();
         var hourBuckets = new Dictionary<DateTimeOffset, (int Messages, long Tokens)>();
 
-        foreach (var file in sessionFiles)
+        for (var fileIndex = 0; fileIndex < sessionFiles.Count; fileIndex++)
+        {
+            try
+            {
+                ProcessFile(sessionFiles[fileIndex]);
+            }
+            finally
+            {
+                progress?.Report((fileIndex + 1) * 100 / sessionFiles.Count);
+            }
+        }
+
+        void ProcessFile(string file)
         {
             List<Models.SessionMessage> parsed;
             try
@@ -32,7 +44,7 @@ public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, Cos
             }
             catch
             {
-                continue;
+                return;
             }
 
             string? sessionId = null;

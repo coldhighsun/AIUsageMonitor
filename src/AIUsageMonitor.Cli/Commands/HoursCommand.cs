@@ -11,7 +11,7 @@ public static class HoursCommand
         var command = new Command("hours", "Show hourly activity distribution");
         command.SetAction(_ =>
         {
-            var hours = dataService.GetHourlyActivity();
+            var hours = ProgressReporter.Run("Loading usage data...", dataService.GetHourlyActivity);
             SpectreRenderer.RenderHourlyActivity(hours);
             return 0;
         });

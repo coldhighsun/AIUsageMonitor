@@ -36,25 +36,27 @@ public static class WatchCommand
             var interval = Math.Max(1, parseResult.GetValue(intervalOption));
             var recentHours = Math.Max(1, parseResult.GetValue(recentHoursOption));
 
-            IRenderable BuildCurrent() => view switch
+            IRenderable BuildCurrent(IProgress<int>? progress = null) => view switch
             {
-                "today" => dataService.GetDailySummary(DateOnly.FromDateTime(DateTime.Today)) is { } d
+                "today" => dataService.GetDailySummary(DateOnly.FromDateTime(DateTime.Today), progress) is { } d
                     ? new Rows(
                         SpectreRenderer.BuildDailySummary(d),
                         new Rule().RuleStyle("grey"),
-                        SpectreRenderer.BuildHourlyTokenChart(dataService.GetRecentActivity(TimeSpan.FromHours(recentHours)).HourlyTrend))
+                        SpectreRenderer.BuildHourlyTokenChart(dataService.GetRecentActivity(TimeSpan.FromHours(recentHours), progress).HourlyTrend))
                     : new Markup("[yellow]No data for today.[/]"),
                 "week" => SpectreRenderer.BuildPeriodSummary(
-                    dataService.GetPeriodSummary(DateOnly.FromDateTime(DateTime.Today).AddDays(-6), DateOnly.FromDateTime(DateTime.Today))),
-                "models" => SpectreRenderer.BuildModelDistribution(dataService.GetModelDistribution()),
-                "sessions" => SpectreRenderer.BuildSessionStats(dataService.GetSessionStats()),
-                "hours" => SpectreRenderer.BuildHourlyActivity(dataService.GetHourlyActivity()),
+                    dataService.GetPeriodSummary(DateOnly.FromDateTime(DateTime.Today).AddDays(-6), DateOnly.FromDateTime(DateTime.Today), progress)),
+                "models" => SpectreRenderer.BuildModelDistribution(dataService.GetModelDistribution(progress)),
+                "sessions" => SpectreRenderer.BuildSessionStats(dataService.GetSessionStats(progress)),
+                "hours" => SpectreRenderer.BuildHourlyActivity(dataService.GetHourlyActivity(progress)),
                 _ => new Markup($"[red]Unknown view: {view}. Use today|week|models|sessions|hours.[/]")
             };
 
             AnsiConsole.Clear();
 
-            await AnsiConsole.Live(BuildCurrent())
+            var initial = ProgressReporter.Run("Loading usage data...", p => BuildCurrent(p));
+
+            await AnsiConsole.Live(initial)
                 .StartAsync(async ctx =>
                 {
                     while (!ct.IsCancellationRequested)

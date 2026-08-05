@@ -23,7 +23,13 @@ A read-only analytics layer over Claude Code's own local usage data. It never ca
 - **AIUsageMonitor.Cli** — console app (`aimon`) exposing usage reports as CLI commands.
 - **AIUsageMonitor.WPF** — Windows desktop dashboard (WPF, Windows-only).
 
-### Build
+### Install
+
+```
+dotnet tool install --global AIUsageMonitor.Cli
+```
+
+Or build from source:
 
 ```
 dotnet build AIUsageMonitor.slnx
@@ -32,8 +38,10 @@ dotnet build AIUsageMonitor.slnx
 ### CLI usage
 
 ```
-dotnet run --project src/AIUsageMonitor.Cli -- <command>
+aimon <command>
 ```
+
+(or, from source: `dotnet run --project src/AIUsageMonitor.Cli -- <command>`)
 
 Commands:
 
@@ -43,6 +51,7 @@ Commands:
 - `models` — usage broken down by model
 - `sessions` — per-session summaries
 - `hours` — usage broken down by hour of day
+- `watch` — live-updating view (`today|week|models|sessions|hours`), refreshed on an interval
 - `export` — export raw analytics; supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
 
 ### WPF dashboard (Windows only)
@@ -55,7 +64,11 @@ Polls usage data once per minute and renders daily/model/hourly charts.
 
 ### How it works
 
-Provider-specific code lives under `Providers/<Name>/` and implements `IUsageProvider`. Today there is one provider, `Providers/Claude/`: `ClaudeDataLocator` finds the Claude Code data directory, and `StatsCacheParser`, `SessionParser`, and `HistoryParser` parse its JSON/JSONL files (tolerant of malformed lines) via a source-generated `System.Text.Json` context; `ClaudeUsageProvider` wraps them behind `IUsageProvider`. `Analytics/UsageAnalyzer` computes summaries from an `IUsageProvider`'s data using `Analytics/CostCalculator` for token cost estimation. `Services/DataService` is the single facade over all of this, consumed by both the CLI and the WPF app, with a 30-second cache invalidated early by a `FileSystemWatcher` on `stats-cache.json`.
+Provider-specific code lives under `Providers/<Name>/` and implements `IUsageProvider`. Today there is one provider, `Providers/Claude/`: `ClaudeDataLocator` finds the Claude Code data directory, and `StatsCacheParser`, `SessionParser`, and `HistoryParser` parse its JSON/JSONL files (tolerant of malformed lines) via a source-generated `System.Text.Json` context; `ClaudeUsageProvider` wraps them behind `IUsageProvider`. `Analytics/UsageAnalyzer` computes summaries from an `IUsageProvider`'s data using `Analytics/CostCalculator` for token cost estimation. `Services/DataService` is the single facade over all of this, consumed by both the CLI and the WPF app, with a 30-second cache invalidated early by a `FileSystemWatcher` on `stats-cache.json`. Long-running reads accept an optional `IProgress<int>`, which the CLI surfaces as a Spectre.Console progress bar.
+
+### Releases
+
+Pushing a `v*` tag builds self-contained CLI binaries for win-x64/linux-x64/osx-x64/osx-arm64, attaches them to a GitHub release, and publishes the `aimon` dotnet tool to NuGet (see `.github/workflows/ci.yml`).
 
 ### License
 
@@ -74,7 +87,13 @@ MIT — see [LICENSE](LICENSE).
 - **AIUsageMonitor.Cli** — 控制台程序(命令名 `aimon`),以命令行方式输出用量报告。
 - **AIUsageMonitor.WPF** — Windows 桌面仪表盘(WPF,仅支持 Windows)。
 
-### 构建
+### 安装
+
+```
+dotnet tool install --global AIUsageMonitor.Cli
+```
+
+或从源码构建:
 
 ```
 dotnet build AIUsageMonitor.slnx
@@ -83,8 +102,10 @@ dotnet build AIUsageMonitor.slnx
 ### CLI 用法
 
 ```
-dotnet run --project src/AIUsageMonitor.Cli -- <命令>
+aimon <命令>
 ```
+
+(或从源码运行:`dotnet run --project src/AIUsageMonitor.Cli -- <命令>`)
 
 可用命令:
 
@@ -94,6 +115,7 @@ dotnet run --project src/AIUsageMonitor.Cli -- <命令>
 - `models` — 按模型统计用量
 - `sessions` — 每个会话的用量汇总
 - `hours` — 按小时统计用量
+- `watch` — 实时刷新视图(`today|week|models|sessions|hours`),按指定间隔自动刷新
 - `export` — 导出原始分析数据;支持 `--format json|csv` 与 `--output <path>`(默认输出到标准输出,格式为 JSON)
 
 ### WPF 仪表盘(仅 Windows)
@@ -106,7 +128,11 @@ dotnet run --project src/AIUsageMonitor.WPF
 
 ### 工作原理
 
-各数据源的专属代码位于 `Providers/<名称>/` 下,均实现 `IUsageProvider` 接口。目前只有一个数据源 `Providers/Claude/`:`ClaudeDataLocator` 负责定位 Claude Code 的数据目录,`StatsCacheParser`、`SessionParser`、`HistoryParser` 逐行解析其中的 JSON/JSONL 文件(容忍格式错误的行),解析过程使用源生成的 `System.Text.Json` 上下文;`ClaudeUsageProvider` 将它们封装为 `IUsageProvider`。`Analytics/UsageAnalyzer` 基于某个 `IUsageProvider` 的数据,结合 `Analytics/CostCalculator` 计算 token 成本,生成各类统计摘要。`Services/DataService` 是对上述所有逻辑的统一封装,供 CLI 与 WPF 两端共用,内部对 `stats-cache.json` 做了 30 秒缓存,并通过 `FileSystemWatcher` 提前失效。
+各数据源的专属代码位于 `Providers/<名称>/` 下,均实现 `IUsageProvider` 接口。目前只有一个数据源 `Providers/Claude/`:`ClaudeDataLocator` 负责定位 Claude Code 的数据目录,`StatsCacheParser`、`SessionParser`、`HistoryParser` 逐行解析其中的 JSON/JSONL 文件(容忍格式错误的行),解析过程使用源生成的 `System.Text.Json` 上下文;`ClaudeUsageProvider` 将它们封装为 `IUsageProvider`。`Analytics/UsageAnalyzer` 基于某个 `IUsageProvider` 的数据,结合 `Analytics/CostCalculator` 计算 token 成本,生成各类统计摘要。`Services/DataService` 是对上述所有逻辑的统一封装,供 CLI 与 WPF 两端共用,内部对 `stats-cache.json` 做了 30 秒缓存,并通过 `FileSystemWatcher` 提前失效。耗时较长的读取操作支持可选的 `IProgress<int>` 参数,CLI 端会将其渲染为 Spectre.Console 进度条。
+
+### 发布
+
+推送 `v*` 标签会为 win-x64/linux-x64/osx-x64/osx-arm64 构建自包含的 CLI 二进制文件,附加到 GitHub Release,并将 `aimon` dotnet 工具发布到 NuGet(详见 `.github/workflows/ci.yml`)。
 
 ### 许可协议
 

@@ -11,7 +11,7 @@ public static class SessionsCommand
         var command = new Command("sessions", "Show session statistics");
         command.SetAction(_ =>
         {
-            var stats = dataService.GetSessionStats();
+            var stats = ProgressReporter.Run("Loading usage data...", dataService.GetSessionStats);
             SpectreRenderer.RenderSessionStats(stats);
             return 0;
         });

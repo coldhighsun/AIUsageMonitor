@@ -8,11 +8,23 @@ namespace AIUsageMonitor.Core.Providers.Claude;
 /// </summary>
 public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
 {
-    public List<HourlyActivity> Build(IReadOnlyList<string> sessionFiles)
+    public List<HourlyActivity> Build(IReadOnlyList<string> sessionFiles, IProgress<int>? progress = null)
     {
         var tokensByHour = new long[24];
 
-        foreach (var file in sessionFiles)
+        for (var fileIndex = 0; fileIndex < sessionFiles.Count; fileIndex++)
+        {
+            try
+            {
+                ProcessFile(sessionFiles[fileIndex]);
+            }
+            finally
+            {
+                progress?.Report((fileIndex + 1) * 100 / sessionFiles.Count);
+            }
+        }
+
+        void ProcessFile(string file)
         {
             List<Models.SessionMessage> parsed;
             try
@@ -21,7 +33,7 @@ public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
             }
             catch
             {
-                continue;
+                return;
             }
 
             foreach (var msg in parsed)
