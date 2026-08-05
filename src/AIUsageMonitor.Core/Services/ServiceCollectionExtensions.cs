@@ -22,6 +22,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<StatsCacheBuilder>();
         services.AddSingleton<SessionParser>();
         services.AddSingleton<SessionFileCache>();
+        services.AddSingleton<SessionActivityTracker>();
         services.AddSingleton<CostCalculator>();
         services.AddSingleton<RecentActivityBuilder>();
         services.AddSingleton<HourlyActivityBuilder>();
