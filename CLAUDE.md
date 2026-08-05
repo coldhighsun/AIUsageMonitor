@@ -6,10 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Build: `dotnet build AIUsageMonitor.slnx`
 - Run CLI (binary name is `aimon`): `dotnet run --project src/AIUsageMonitor.Cli -- <command>`
-  - Commands: `today`, `week`, `month`, `models`, `sessions`, `hours`, `export`
+  - Commands: `today`, `week`, `month`, `models`, `sessions`, `hours`, `watch`, `export`
+  - `watch` takes a sub-view (`today|week|models|sessions|hours`) and refreshes it on an interval
   - `export` supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
 - Run WPF app (Windows-only): `dotnet run --project src/AIUsageMonitor.WPF`
 - Run tests: `dotnet test AIUsageMonitor.slnx`
+  - Single test: `dotnet test tests/AIUsageMonitor.Core.Tests --filter "FullyQualifiedName~MethodName"`
+- Versioning is via MinVer, driven by `v*` git tags (prefix `v`); no manual version bumps in project files.
 
 ## Architecture
 
@@ -40,3 +43,7 @@ DI is wired through `ServiceCollectionExtensions.AddClaudeUsageCore()`, which re
 ### WPF
 
 `DashboardViewModel` polls `DataService` on a `DispatcherTimer` (once per minute) and renders daily/model/hourly series via LiveChartsCore, using CommunityToolkit.Mvvm for the MVVM plumbing.
+
+### Releases
+
+Pushing a `v*` tag (see `.github/workflows/ci.yml`) builds self-contained CLI binaries for win-x64/linux-x64/osx-x64/osx-arm64, attaches them to a GitHub release (marked pre-release for prerelease tags), and publishes the `aimon` dotnet tool to NuGet. The NuGet publish job runs on `ubuntu` specifically to avoid a `pwsh` glob issue.

@@ -33,6 +33,7 @@
     <RepositoryUrl>https://github.com/coldhighsun/AIUsageMonitor</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>claude;claude-code;anthropic;cli;usage;analytics;dotnet-tool;tokens;cost</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
