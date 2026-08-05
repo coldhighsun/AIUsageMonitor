@@ -23,7 +23,7 @@ public static class SpectreRenderer
             return table;
         }
 
-        var chart = new BarChart().Label("[bold]Tokens by Model[/]").Width(80).UseValueFormatter(v => ((long)v).ToString("N0"));
+        var chart = new BarChart().Label("[bold]Tokens by Model[/]").Width(80).UseValueFormatter(v => FormatTokens((long)v));
         var colorIndex = 0;
         var colors = new[] { Color.Blue, Color.Green, Color.Yellow, Color.Red, Color.Purple, Color.Orange1, Color.Cyan1 };
         foreach (var (model, tokens) in summary.TokensByModel.OrderByDescending(x => x.Value))
@@ -51,7 +51,7 @@ public static class SpectreRenderer
             return table;
         }
 
-        var chart = new BarChart().Label("[bold]Daily Tokens[/]").Width(80).UseValueFormatter(v => ((long)v).ToString("N0"));
+        var chart = new BarChart().Label("[bold]Daily Tokens[/]").Width(80).UseValueFormatter(v => FormatTokens((long)v));
         var colorIndex = 0;
         foreach (var day in summary.DailyBreakdown)
         {
@@ -115,7 +115,7 @@ public static class SpectreRenderer
 
     public static IRenderable BuildHourlyActivity(List<HourlyActivity> hours)
     {
-        var chart = new BarChart().Label("[bold]Tokens by Hour[/]").Width(80).UseValueFormatter(v => ((long)v).ToString("N0"));
+        var chart = new BarChart().Label("[bold]Tokens by Hour[/]").Width(80).UseValueFormatter(v => FormatTokens((long)v));
         var colorIndex = 0;
         foreach (var h in hours)
         {
@@ -127,7 +127,7 @@ public static class SpectreRenderer
 
     public static IRenderable BuildHourlyTokenChart(List<HourBucket> buckets)
     {
-        var chart = new BarChart().Label("[bold]Tokens by Hour[/]").Width(80).UseValueFormatter(v => ((long)v).ToString("N0"));
+        var chart = new BarChart().Label("[bold]Tokens by Hour[/]").Width(80).UseValueFormatter(v => FormatTokens((long)v));
         var colorIndex = 0;
         foreach (var bucket in buckets)
         {

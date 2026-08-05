@@ -139,7 +139,7 @@ public partial class DashboardViewModel : ObservableObject
 
         HourlyYAxes =
         [
-            new() { Labeler = value => value.ToString("N0") }
+            new() { Labeler = value => FormatTokens((long)value) }
         ];
     }
 
