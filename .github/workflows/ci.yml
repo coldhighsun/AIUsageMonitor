@@ -96,11 +96,18 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Pack
-        run: dotnet pack src/AIUsageMonitor.Cli -c Release -o nupkg
+        run: dotnet pack src/AIUsageMonitor.Cli -c Release -o "${{ github.workspace }}/nupkg"
 
       - name: Push to NuGet
-        run: >
-          dotnet nuget push nupkg/*.nupkg
-          --source https://api.nuget.org/v3/index.json
-          --api-key ${{ secrets.NUGET_API_KEY }}
-          --skip-duplicate
+        shell: pwsh
+        run: |
+          $packages = Get-ChildItem -Path "${{ github.workspace }}/nupkg" -Filter *.nupkg
+          if (-not $packages) {
+            throw "No .nupkg files found in ${{ github.workspace }}/nupkg"
+          }
+          foreach ($package in $packages) {
+            dotnet nuget push $package.FullName `
+              --source https://api.nuget.org/v3/index.json `
+              --api-key ${{ secrets.NUGET_API_KEY }} `
+              --skip-duplicate
+          }
