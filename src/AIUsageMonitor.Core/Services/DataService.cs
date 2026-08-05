@@ -44,6 +44,13 @@ public sealed class DataService : IDisposable
     private readonly IUsageProvider _provider;
 
     /// <summary>
+    /// Tracks the latest session file write time, fed incrementally from <see cref="_sessionsWatcher"/>
+    /// events so <see cref="Providers.Claude.ClaudeUsageProvider"/> can check staleness without
+    /// re-scanning the projects directory.
+    /// </summary>
+    private readonly SessionActivityTracker _sessionActivityTracker;
+
+    /// <summary>
     /// The session file cache used to cache parsed session transcript rows. This field is initialized in the constructor and is used to store the results of parsing session transcript files, allowing for faster access to the data without needing to repeatedly read and parse the files from disk.
     /// </summary>
     private readonly SessionFileCache _sessionFileCache;
@@ -64,16 +71,19 @@ public sealed class DataService : IDisposable
     /// <param name="provider">The usage provider used to retrieve AI usage data.</param>
     /// <param name="analyzer">The usage analyzer used to analyze AI usage data.</param>
     /// <param name="sessionFileCache">The session file cache used to cache parsed session transcript rows.</param>
+    /// <param name="sessionActivityTracker">Tracks the latest session file write time from file-system watcher events.</param>
     /// <param name="logger">The logger instance used for logging warnings and errors.</param>
     public DataService(
         IUsageProvider provider,
         UsageAnalyzer analyzer,
         SessionFileCache sessionFileCache,
+        SessionActivityTracker sessionActivityTracker,
         ILogger<DataService> logger)
     {
         _provider = provider;
         _analyzer = analyzer;
         _sessionFileCache = sessionFileCache;
+        _sessionActivityTracker = sessionActivityTracker;
         _logger = logger;
 
         if (provider is ClaudeUsageProvider claudeProvider)
@@ -206,11 +216,14 @@ public sealed class DataService : IDisposable
     {
         _logger.LogTrace("Session file change detected: {ChangeType} - {FullPath}", e.ChangeType, e.FullPath);
 
+        _cache.Remove(StatsCacheKey);
+
         switch (e.ChangeType)
         {
             case WatcherChangeTypes.Changed:
             case WatcherChangeTypes.Created:
                 _sessionFileCache.Set(e.FullPath);
+                _sessionActivityTracker.Observe(File.GetLastWriteTimeUtc(e.FullPath));
                 break;
 
             case WatcherChangeTypes.Deleted:

@@ -12,6 +12,7 @@ namespace AIUsageMonitor.Core.Providers.Claude;
 /// <param name="statsCacheBuilder">Builds a <see cref="StatsCache"/> from session transcripts when the cache is missing or stale.</param>
 /// <param name="recentActivityBuilder">Builds a summary of recent activity from session transcripts.</param>
 /// <param name="hourlyActivityBuilder">Builds hourly activity data from session transcripts.</param>
+/// <param name="sessionActivityTracker">Tracks the latest session file write time without re-scanning the projects directory on every call.</param>
 /// <param name="logger">Logger used to report cache fallback diagnostics.</param>
 public sealed class ClaudeUsageProvider(
     ClaudeDataLocator locator,
@@ -19,6 +20,7 @@ public sealed class ClaudeUsageProvider(
     StatsCacheBuilder statsCacheBuilder,
     RecentActivityBuilder recentActivityBuilder,
     HourlyActivityBuilder hourlyActivityBuilder,
+    SessionActivityTracker sessionActivityTracker,
     ILogger<ClaudeUsageProvider> logger) : IUsageProvider
 {
     /// <summary>Gets the display name of this usage provider.</summary>
@@ -65,7 +67,9 @@ public sealed class ClaudeUsageProvider(
             {
                 var cache = statsCacheParser.Parse(locator.StatsCachePath);
                 var today = DateOnly.FromDateTime(DateTimeOffset.Now.LocalDateTime);
-                if (cache.LastComputedDate >= today)
+                var cacheWriteTime = File.GetLastWriteTimeUtc(locator.StatsCachePath);
+
+                if (cache.LastComputedDate >= today && cacheWriteTime >= sessionActivityTracker.LatestWriteUtc)
                 {
                     progress?.Report(100);
                     return cache;
