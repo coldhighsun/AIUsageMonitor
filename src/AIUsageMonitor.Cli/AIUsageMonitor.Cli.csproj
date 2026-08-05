@@ -18,6 +18,7 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>aimon</AssemblyName>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
 	<PublishSingleFile>true</PublishSingleFile>
 	<PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
