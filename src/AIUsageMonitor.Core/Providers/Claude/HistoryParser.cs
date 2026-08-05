@@ -1,11 +1,19 @@
-using System.Text.Json;
 using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Providers.Claude.Models;
+using System.Text.Json;
 
 namespace AIUsageMonitor.Core.Providers.Claude;
 
+/// <summary>
+/// Parses a history file containing JSON lines into a collection of <see cref="HistoryEntry"/> objects.
+/// </summary>
 public sealed class HistoryParser
 {
+    /// <summary>
+    /// Parses the specified history file and returns a collection of <see cref="HistoryEntry"/> objects.
+    /// </summary>
+    /// <param name="filePath">The path to the history file to parse.</param>
+    /// <returns>A collection of <see cref="HistoryEntry"/> objects.</returns>
     public IEnumerable<HistoryEntry> Parse(string filePath)
     {
         if (!File.Exists(filePath))

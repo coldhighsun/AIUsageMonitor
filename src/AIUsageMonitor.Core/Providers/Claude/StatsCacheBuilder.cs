@@ -7,8 +7,15 @@ namespace AIUsageMonitor.Core.Providers.Claude;
 /// projects/*.jsonl, for use when Claude Code hasn't written (or has removed) its own
 /// stats-cache.json.
 /// </summary>
+/// <param name="sessionFileCache">The session file cache used to retrieve and prune session files.</param>
 public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
 {
+    /// <summary>
+    /// Builds a <see cref="StatsCache"/> by aggregating the raw session transcripts under
+    /// </summary>
+    /// <param name="sessionFiles">The list of session files to process.</param>
+    /// <param name="progress">An optional progress reporter to report the progress of processing the session files.</param>
+    /// <returns>A <see cref="StatsCache"/> object containing the aggregated statistics.</returns>
     public StatsCache Build(IReadOnlyList<string> sessionFiles, IProgress<int>? progress = null)
     {
         sessionFileCache.Prune(sessionFiles);
@@ -38,7 +45,7 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
 
         void ProcessFile(string file)
         {
-            List<SessionMessage> messages;
+            IReadOnlyList<SessionMessage> messages;
             try
             {
                 messages = sessionFileCache.GetRows(file);

@@ -1,15 +1,23 @@
-using System.CommandLine;
-using System.Text.Json;
 using AIUsageMonitor.Cli.Rendering;
 using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Providers.Claude.Models;
 using AIUsageMonitor.Core.Services;
 using Spectre.Console;
+using System.CommandLine;
+using System.Text.Json;
 
 namespace AIUsageMonitor.Cli.Commands;
 
+/// <summary>
+/// Represents the "export" command for exporting usage data in JSON or CSV format. This command retrieves usage statistics and model distribution data from the provided <see cref="DataService"/> and outputs it to a specified file or standard output.
+/// </summary>
 public static class ExportCommand
 {
+    /// <summary>
+    /// Creates a new instance of the "export" command with the specified <see cref="DataService"/>. The command supports options for specifying the output format (JSON or CSV) and the output file path. If no output file is specified, the data will be printed to standard output.
+    /// </summary>
+    /// <param name="dataService">The data service used to retrieve usage statistics and model distribution data.</param>
+    /// <returns>A configured <see cref="Command"/> instance for exporting usage data.</returns>
     public static Command Create(DataService dataService)
     {
         var command = new Command("export", "Export usage data");
@@ -58,6 +66,12 @@ public static class ExportCommand
         return command;
     }
 
+    /// <summary>
+    /// Exports the usage data and model distribution to a CSV formatted string. The CSV includes daily activity statistics and model distribution details, with appropriate headers for each section.
+    /// </summary>
+    /// <param name="cache">The cached usage statistics to export.</param>
+    /// <param name="models">The model distribution data to export.</param>
+    /// <returns>A CSV formatted string representing the usage data and model distribution.</returns>
     private static string ExportCsv(
         StatsCache cache,
         List<ModelDistribution> models)
