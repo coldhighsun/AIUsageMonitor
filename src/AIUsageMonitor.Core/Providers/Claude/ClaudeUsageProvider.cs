@@ -17,23 +17,33 @@ public sealed class ClaudeUsageProvider(
     public string ProjectsDir => locator.ProjectsDir;
     public string StatsCachePath => locator.StatsCachePath;
 
-    public List<HourlyActivity> GetHourlyActivity()
+    public List<HourlyActivity> GetHourlyActivity(IProgress<int>? progress = null)
     {
-        return hourlyActivityBuilder.Build(locator.GetSessionFiles());
+        return hourlyActivityBuilder.Build(locator.GetSessionFiles(), progress);
     }
 
-    public RecentActivitySummary GetRecentActivity(TimeSpan window)
+    public RecentActivitySummary GetRecentActivity(TimeSpan window, IProgress<int>? progress = null)
     {
-        return recentActivityBuilder.Build(locator.GetSessionFiles(), window);
+        return recentActivityBuilder.Build(locator.GetSessionFiles(), window, progress);
     }
 
-    public StatsCache GetStatsCache()
+    public StatsCache GetStatsCache(IProgress<int>? progress = null)
     {
         if (File.Exists(locator.StatsCachePath))
         {
             try
             {
-                return statsCacheParser.Parse(locator.StatsCachePath);
+                var cache = statsCacheParser.Parse(locator.StatsCachePath);
+                var today = DateOnly.FromDateTime(DateTimeOffset.Now.LocalDateTime);
+                if (cache.LastComputedDate >= today)
+                {
+                    progress?.Report(100);
+                    return cache;
+                }
+
+                logger.LogInformation(
+                    "stats-cache.json at {Path} is stale (last computed {LastComputedDate}); computing usage from session transcripts instead",
+                    locator.StatsCachePath, cache.LastComputedDate);
             }
             catch (Exception ex)
             {
@@ -45,6 +55,6 @@ public sealed class ClaudeUsageProvider(
             logger.LogInformation("stats-cache.json not found at {Path}; computing usage from session transcripts instead", locator.StatsCachePath);
         }
 
-        return statsCacheBuilder.Build(locator.GetSessionFiles());
+        return statsCacheBuilder.Build(locator.GetSessionFiles(), progress);
     }
 }

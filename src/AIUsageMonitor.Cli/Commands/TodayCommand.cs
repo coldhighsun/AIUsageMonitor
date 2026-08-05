@@ -19,7 +19,8 @@ public static class TodayCommand
 
         command.SetAction(parseResult =>
         {
-            var summary = dataService.GetDailySummary(DateOnly.FromDateTime(DateTime.Today));
+            var summary = ProgressReporter.Run("Loading usage data...",
+                p => dataService.GetDailySummary(DateOnly.FromDateTime(DateTime.Today), p));
             if (summary is null)
             {
                 AnsiConsole.MarkupLine("[yellow]No data for today.[/]");
@@ -27,7 +28,8 @@ public static class TodayCommand
             }
 
             var recentHours = Math.Max(1, parseResult.GetValue(recentHoursOption));
-            var recent = dataService.GetRecentActivity(TimeSpan.FromHours(recentHours));
+            var recent = ProgressReporter.Run("Loading recent activity...",
+                p => dataService.GetRecentActivity(TimeSpan.FromHours(recentHours), p));
 
             AnsiConsole.Write(new Rows(
                 SpectreRenderer.BuildDailySummary(summary),

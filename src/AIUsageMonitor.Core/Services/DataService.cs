@@ -58,44 +58,45 @@ public sealed class DataService : IDisposable
         _cache.Dispose();
     }
 
-    public DailySummary? GetDailySummary(DateOnly date)
+    public DailySummary? GetDailySummary(DateOnly date, IProgress<int>? progress = null)
     {
-        return _analyzer.GetDailySummary(GetStatsCache(), date);
+        return _analyzer.GetDailySummary(GetStatsCache(progress), date);
     }
 
-    public List<HourlyActivity> GetHourlyActivity()
+    public List<HourlyActivity> GetHourlyActivity(IProgress<int>? progress = null)
     {
-        return _provider.GetHourlyActivity();
+        return _provider.GetHourlyActivity(progress);
     }
 
-    public List<ModelDistribution> GetModelDistribution()
+    public List<ModelDistribution> GetModelDistribution(IProgress<int>? progress = null)
     {
-        return _analyzer.GetModelDistribution(GetStatsCache());
+        return _analyzer.GetModelDistribution(GetStatsCache(progress));
     }
 
-    public PeriodSummary GetPeriodSummary(DateOnly from, DateOnly to)
+    public PeriodSummary GetPeriodSummary(DateOnly from, DateOnly to, IProgress<int>? progress = null)
     {
-        return _analyzer.GetPeriodSummary(GetStatsCache(), from, to);
+        return _analyzer.GetPeriodSummary(GetStatsCache(progress), from, to);
     }
 
-    public RecentActivitySummary GetRecentActivity(TimeSpan window)
+    public RecentActivitySummary GetRecentActivity(TimeSpan window, IProgress<int>? progress = null)
     {
-        return _provider.GetRecentActivity(window);
+        return _provider.GetRecentActivity(window, progress);
     }
 
-    public SessionStats GetSessionStats()
+    public SessionStats GetSessionStats(IProgress<int>? progress = null)
     {
-        return _analyzer.GetSessionStats(GetStatsCache());
+        return _analyzer.GetSessionStats(GetStatsCache(progress));
     }
 
-    public StatsCache GetStatsCache()
+    public StatsCache GetStatsCache(IProgress<int>? progress = null)
     {
         if (_cache.Get(StatsCacheKey) is StatsCache cached)
         {
+            progress?.Report(100);
             return cached;
         }
 
-        var stats = _provider.GetStatsCache();
+        var stats = _provider.GetStatsCache(progress);
         _cache.Set(StatsCacheKey, stats, DateTimeOffset.UtcNow.AddMinutes(1));
         return stats;
     }

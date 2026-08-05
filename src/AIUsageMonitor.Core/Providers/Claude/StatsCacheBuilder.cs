@@ -9,7 +9,7 @@ namespace AIUsageMonitor.Core.Providers.Claude;
 /// </summary>
 public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
 {
-    public StatsCache Build(IReadOnlyList<string> sessionFiles)
+    public StatsCache Build(IReadOnlyList<string> sessionFiles, IProgress<int>? progress = null)
     {
         sessionFileCache.Prune(sessionFiles);
 
@@ -18,13 +18,25 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
         var modelUsage = new Dictionary<string, ModelUsageEntry>();
         var hourCounts = new Dictionary<string, int>();
         var sessionIds = new HashSet<string>();
-        DateOnly? firstSessionDate = null;
+        DateTimeOffset? firstSessionDate = null;
         string? longestSessionId = null;
         long longestDurationMs = 0;
         var longestMessageCount = 0;
         string? longestTimestamp = null;
 
-        foreach (var file in sessionFiles)
+        for (var fileIndex = 0; fileIndex < sessionFiles.Count; fileIndex++)
+        {
+            try
+            {
+                ProcessFile(sessionFiles[fileIndex]);
+            }
+            finally
+            {
+                progress?.Report((fileIndex + 1) * 100 / sessionFiles.Count);
+            }
+        }
+
+        void ProcessFile(string file)
         {
             List<SessionMessage> messages;
             try
@@ -33,12 +45,12 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
             }
             catch
             {
-                continue;
+                return;
             }
 
             if (messages.Count == 0)
             {
-                continue;
+                return;
             }
 
             var sessionId = messages.FirstOrDefault(m => m.SessionId is not null)?.SessionId
@@ -59,9 +71,9 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
                 if (sessionEnd is null || ts > sessionEnd) sessionEnd = ts;
 
                 var dateOnly = DateOnly.FromDateTime(ts.LocalDateTime);
-                if (firstSessionDate is null || dateOnly < firstSessionDate)
+                if (firstSessionDate is null || ts < firstSessionDate)
                 {
-                    firstSessionDate = dateOnly;
+                    firstSessionDate = ts;
                 }
 
                 if (msg.Type is not "user" and not "assistant")
