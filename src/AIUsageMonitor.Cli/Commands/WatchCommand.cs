@@ -1,13 +1,21 @@
-using System.CommandLine;
 using AIUsageMonitor.Cli.Rendering;
 using AIUsageMonitor.Core.Services;
 using Spectre.Console;
 using Spectre.Console.Rendering;
+using System.CommandLine;
 
 namespace AIUsageMonitor.Cli.Commands;
 
+/// <summary>
+/// Represents the "watch" command, which continuously refreshes a usage view at a fixed interval.
+/// </summary>
 public static class WatchCommand
 {
+    /// <summary>
+    /// Creates the "watch" command with its options and action.
+    /// </summary>
+    /// <param name="dataService">The data service used to retrieve usage data for the specified view.</param>
+    /// <returns>A configured <see cref="Command"/> instance for continuously refreshing a usage view.</returns>
     public static Command Create(DataService dataService)
     {
         var command = new Command("watch", "Continuously refresh a usage view at a fixed interval");
