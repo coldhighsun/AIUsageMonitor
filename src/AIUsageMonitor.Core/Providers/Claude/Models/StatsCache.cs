@@ -64,8 +64,7 @@ public sealed class StatsCache
     public List<DailyModelTokens> DailyModelTokens { get; init; } = [];
 
     [JsonPropertyName("firstSessionDate")]
-    [JsonConverter(typeof(NullableDateOnlyJsonConverter))]
-    public DateOnly? FirstSessionDate { get; init; }
+    public DateTimeOffset? FirstSessionDate { get; init; }
 
     [JsonPropertyName("hourCounts")]
     public Dictionary<string, int> HourCounts { get; init; } = [];
