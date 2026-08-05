@@ -11,7 +11,7 @@ public static class ModelsCommand
         var command = new Command("models", "Show model usage distribution");
         command.SetAction(_ =>
         {
-            var models = dataService.GetModelDistribution();
+            var models = ProgressReporter.Run("Loading usage data...", dataService.GetModelDistribution);
             SpectreRenderer.RenderModelDistribution(models);
             return 0;
         });

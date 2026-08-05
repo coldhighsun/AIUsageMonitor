@@ -7,9 +7,9 @@ public interface IUsageProvider
 {
     string Name { get; }
 
-    List<HourlyActivity> GetHourlyActivity();
+    List<HourlyActivity> GetHourlyActivity(IProgress<int>? progress = null);
 
-    RecentActivitySummary GetRecentActivity(TimeSpan window);
+    RecentActivitySummary GetRecentActivity(TimeSpan window, IProgress<int>? progress = null);
 
-    StatsCache GetStatsCache();
+    StatsCache GetStatsCache(IProgress<int>? progress = null);
 }

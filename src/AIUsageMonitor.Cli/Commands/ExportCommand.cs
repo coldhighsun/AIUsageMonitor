@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Text.Json;
+using AIUsageMonitor.Cli.Rendering;
 using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Providers.Claude.Models;
 using AIUsageMonitor.Core.Services;
@@ -22,8 +23,8 @@ public static class ExportCommand
             var format = parseResult.GetValue(formatOption) ?? "json";
             var output = parseResult.GetValue(outputOption);
 
-            var cache = dataService.GetStatsCache();
-            var models = dataService.GetModelDistribution();
+            var (cache, models) = ProgressReporter.Run("Loading usage data...",
+                p => (dataService.GetStatsCache(p), dataService.GetModelDistribution(p)));
 
             string content;
             if (format.Equals("csv", StringComparison.OrdinalIgnoreCase))

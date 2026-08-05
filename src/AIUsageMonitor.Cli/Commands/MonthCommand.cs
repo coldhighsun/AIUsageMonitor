@@ -13,7 +13,7 @@ public static class MonthCommand
         {
             var to = DateOnly.FromDateTime(DateTime.Today);
             var from = to.AddDays(-29);
-            var summary = dataService.GetPeriodSummary(from, to);
+            var summary = ProgressReporter.Run("Loading usage data...", p => dataService.GetPeriodSummary(from, to, p));
             SpectreRenderer.RenderPeriodSummary(summary);
             return 0;
         });
