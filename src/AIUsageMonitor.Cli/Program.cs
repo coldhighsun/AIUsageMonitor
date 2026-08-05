@@ -3,24 +3,13 @@ using AIUsageMonitor.Cli.Commands;
 using AIUsageMonitor.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Serilog;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
-
-var logPath = Path.Combine(
-    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-    "aimon", "logs", "aimon-.log");
-
-Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Information()
-    .WriteTo.File(logPath, rollingInterval: RollingInterval.Day, retainedFileCountLimit: 7)
-    .CreateLogger();
 
 try
 {
-    Log.Information("aimon started with args: {Args}", string.Join(" ", args));
-
     var builder = Host.CreateApplicationBuilder(args);
-    builder.Services.AddSerilog();
+    builder.Logging.ClearProviders();
     builder.Services.AddClaudeUsageCore();
     var host = builder.Build();
 
@@ -41,12 +30,6 @@ try
 }
 catch (Exception ex)
 {
-    Log.Fatal(ex, "aimon terminated unexpectedly");
     AnsiConsole.MarkupLine($"[red]Fatal error: {ex.Message}[/]");
-    AnsiConsole.MarkupLine($"[grey]See logs: {logPath}[/]");
     return 1;
-}
-finally
-{
-    await Log.CloseAndFlushAsync();
 }
