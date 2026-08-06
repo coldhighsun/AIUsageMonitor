@@ -12,6 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run WPF app (Windows-only): `dotnet run --project src/AIUsageMonitor.WPF`
 - Run tests: `dotnet test AIUsageMonitor.slnx`
   - Single test: `dotnet test tests/AIUsageMonitor.Core.Tests --filter "FullyQualifiedName~MethodName"`
+  - Tests live only under `tests/AIUsageMonitor.Core.Tests`, mirroring Core's `Analytics/` and `Providers/Claude/` folders — there are no Cli or WPF test projects.
 - Versioning is via MinVer, driven by `v*` git tags (prefix `v`); no manual version bumps in project files.
 
 ## Architecture
@@ -30,7 +31,7 @@ Provider-specific code lives under `Providers/<Name>/` and implements `Providers
 
 `Analytics/UsageAnalyzer` computes daily/period/model-distribution/hourly/session summaries from an `IUsageProvider`'s `StatsCache`, using `Analytics/CostCalculator` for token cost estimation → `Services/DataService` is the single facade over all of this, consumed by both Cli and WPF. `StatsCache` is currently Claude's own cache-file shape (`Providers/Claude/Models`); adding a second provider will require either normalizing its output to that shape or generalizing `UsageAnalyzer`'s input type.
 
-`DataService` caches the parsed `StatsCache` for 30 seconds and invalidates early via a `FileSystemWatcher` on `stats-cache.json` (Claude-provider-specific, via a type check in `DataService`'s constructor). Session-level summaries (`GetSessionSummaries`) are read fresh from the raw session files rather than the cache.
+`DataService` caches the parsed `StatsCache` for 30 seconds and invalidates early via a `FileSystemWatcher` on `stats-cache.json` (Claude-provider-specific, via a type check in `DataService`'s constructor). Session-level summaries (`GetSessionSummaries`) are read fresh from the raw session files rather than the cache. Long-running `DataService` reads accept an optional `IProgress<int>`, which the Cli surfaces as a Spectre.Console progress bar.
 
 DI is wired through `ServiceCollectionExtensions.AddClaudeUsageCore()`, which registers the Claude provider's locator/parsers, binds it as the singleton `IUsageProvider`, and registers `CostCalculator`, `UsageAnalyzer`, and `DataService`.
 
