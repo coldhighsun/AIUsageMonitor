@@ -19,7 +19,15 @@ public sealed record DailySummary(
     int ToolCalls,
     long TotalTokens,
     Dictionary<string, long> TokensByModel,
-    decimal EstimatedCost);
+    decimal EstimatedCost)
+{
+    /// <summary>
+    /// Creates a zero-valued <see cref="DailySummary"/> for a date with no recorded activity.
+    /// </summary>
+    /// <param name="date">The calendar date the summary covers.</param>
+    /// <returns>A <see cref="DailySummary"/> with all counters at zero.</returns>
+    public static DailySummary Empty(DateOnly date) => new(date, 0, 0, 0, 0, [], 0m);
+}
 
 /// <summary>
 /// Represents an aggregated summary of usage activity over a date range.
