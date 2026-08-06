@@ -1,4 +1,5 @@
 using AIUsageMonitor.Cli.Rendering;
+using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Services;
 using Spectre.Console;
 using Spectre.Console.Rendering;
@@ -29,29 +30,22 @@ public static class WatchCommand
             Description = "Refresh interval in seconds",
             DefaultValueFactory = _ => 2
         };
-        var recentHoursOption = new Option<int>("--recent-hours")
-        {
-            Description = "Trailing window (in hours) for the hourly token chart shown in the today view",
-            DefaultValueFactory = _ => 6
-        };
         command.Options.Add(viewOption);
         command.Options.Add(intervalOption);
-        command.Options.Add(recentHoursOption);
 
         command.SetAction(async (parseResult, ct) =>
         {
             var view = parseResult.GetValue(viewOption)!;
             var interval = Math.Max(1, parseResult.GetValue(intervalOption));
-            var recentHours = Math.Max(1, parseResult.GetValue(recentHoursOption));
 
             IRenderable BuildCurrent(IProgress<int>? progress = null) => view switch
             {
-                "today" => dataService.GetDailySummary(DateOnly.FromDateTime(DateTime.Today), progress) is { } d
-                    ? new Rows(
-                        SpectreRenderer.BuildDailySummary(d),
-                        new Rule().RuleStyle("grey"),
-                        SpectreRenderer.BuildHourlyTokenChart(dataService.GetRecentActivity(TimeSpan.FromHours(recentHours), progress).HourlyTrend))
-                    : new Markup("[yellow]No data for today.[/]"),
+                "today" => new Rows(
+                    SpectreRenderer.BuildDailySummary(
+                        dataService.GetDailySummary(DateOnly.FromDateTime(DateTime.Today), progress)
+                            ?? DailySummary.Empty(DateOnly.FromDateTime(DateTime.Today))),
+                    new Rule().RuleStyle("grey"),
+                    SpectreRenderer.BuildHourlyTokenChart(dataService.GetRecentActivity(DateTimeOffset.Now - DateTimeOffset.Now.Date, progress).HourlyTrend)),
                 "week" => SpectreRenderer.BuildPeriodSummary(
                     dataService.GetPeriodSummary(DateOnly.FromDateTime(DateTime.Today).AddDays(-6), DateOnly.FromDateTime(DateTime.Today), progress)),
                 "models" => SpectreRenderer.BuildModelDistribution(dataService.GetModelDistribution(progress)),
