@@ -100,4 +100,23 @@ public class ClaudeUsageProviderTests : IDisposable
 
         Assert.True(cache.ModelUsage.ContainsKey("cached-model"));
     }
+
+    [Fact]
+    public void GetStatsCache_DuplicateMessageIdInTranscript_CountsTokensOnce()
+    {
+        var sessionFile = Path.Combine(_claudeDir, "projects", "session.jsonl");
+        var t1 = DateTimeOffset.UtcNow.ToString("O");
+        var t2 = DateTimeOffset.UtcNow.AddSeconds(5).ToString("O");
+        File.WriteAllLines(sessionFile,
+        [
+            "{\"type\":\"user\",\"timestamp\":\"" + t1 + "\",\"sessionId\":\"s1\"}",
+            "{\"type\":\"assistant\",\"timestamp\":\"" + t1 + "\",\"sessionId\":\"s1\",\"requestId\":\"req1\",\"message\":{\"id\":\"msg1\",\"role\":\"assistant\",\"model\":\"fresh-model\",\"usage\":{\"input_tokens\":100,\"output_tokens\":50}}}",
+            "{\"type\":\"assistant\",\"timestamp\":\"" + t2 + "\",\"sessionId\":\"s1\",\"requestId\":\"req1\",\"message\":{\"id\":\"msg1\",\"role\":\"assistant\",\"model\":\"fresh-model\",\"usage\":{\"input_tokens\":100,\"output_tokens\":50}}}",
+        ]);
+        File.SetLastWriteTimeUtc(sessionFile, DateTime.UtcNow);
+
+        var cache = _sut.GetStatsCache();
+
+        Assert.Equal(150, cache.ModelUsage["fresh-model"].InputTokens + cache.ModelUsage["fresh-model"].OutputTokens);
+    }
 }

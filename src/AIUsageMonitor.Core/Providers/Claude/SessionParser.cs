@@ -76,6 +76,9 @@ public sealed class SessionParser(ILogger<SessionParser> logger)
 
         var assistantMessages = messages
             .Where(m => m is { Type: "assistant", Message.Usage: not null })
+            .DistinctBy(m => (m.Message!.Id, m.RequestId) is (null, null)
+                ? (object)m.Uuid!
+                : (m.Message!.Id, m.RequestId))
             .ToList();
 
         long totalTokens = 0;

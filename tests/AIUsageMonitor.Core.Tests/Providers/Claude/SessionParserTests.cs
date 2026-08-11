@@ -54,6 +54,23 @@ public class SessionParserTests : IDisposable
     }
 
     [Fact]
+    public void ParseSessionSummary_DuplicateMessageId_CountsTokensOnce()
+    {
+        File.WriteAllLines(_tempFile,
+        [
+            """{"type":"user","timestamp":"2026-08-01T00:00:00Z","sessionId":"s1"}""",
+            """{"type":"assistant","timestamp":"2026-08-01T00:01:00Z","sessionId":"s1","requestId":"req1","message":{"id":"msg1","role":"assistant","model":"sonnet-5","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":10,"cache_creation_input_tokens":0}}}""",
+            """{"type":"assistant","timestamp":"2026-08-01T00:01:05Z","sessionId":"s1","requestId":"req1","message":{"id":"msg1","role":"assistant","model":"sonnet-5","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":10,"cache_creation_input_tokens":0}}}""",
+        ]);
+
+        var summary = _sut.ParseSessionSummary(_tempFile);
+
+        Assert.NotNull(summary);
+        Assert.Equal(160, summary.TotalTokens);
+        Assert.Equal(160, summary.TokensByModel["sonnet-5"]);
+    }
+
+    [Fact]
     public void ParseSessionSummary_EmptyFile_ReturnsNull()
     {
         File.WriteAllText(_tempFile, "");
