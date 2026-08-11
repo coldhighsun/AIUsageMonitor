@@ -79,6 +79,7 @@ public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, Cos
             }
 
             string? sessionId = null;
+            var seenAssistantMessageIds = new HashSet<(string?, string?)>();
 
             foreach (var msg in parsed)
             {
@@ -107,7 +108,10 @@ public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, Cos
                 if (msg.Type == "assistant" && usage is not null)
                 {
                     var model = msg.Message?.Model ?? "unknown";
-                    if (model != "<synthetic>")
+                    var messageKey = (msg.Message!.Id, msg.RequestId) is (null, null)
+                        ? (msg.Uuid, (string?)null)
+                        : (msg.Message!.Id, msg.RequestId);
+                    if (model != "<synthetic>" && seenAssistantMessageIds.Add(messageKey))
                     {
                         var tokens = usage.InputTokens + usage.OutputTokens
                                                        + usage.CacheReadInputTokens + usage.CacheCreationInputTokens;

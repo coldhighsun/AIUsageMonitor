@@ -52,6 +52,8 @@ public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
             return;
         }
 
+        var seenAssistantMessageIds = new HashSet<(string?, string?)>();
+
         foreach (var msg in parsed)
         {
             if (msg.Type != "assistant" ||
@@ -69,6 +71,14 @@ public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
 
             var model = msg.Message?.Model ?? "unknown";
             if (model == "<synthetic>")
+            {
+                continue;
+            }
+
+            var messageKey = (msg.Message!.Id, msg.RequestId) is (null, null)
+                ? (msg.Uuid, (string?)null)
+                : (msg.Message!.Id, msg.RequestId);
+            if (!seenAssistantMessageIds.Add(messageKey))
             {
                 continue;
             }
