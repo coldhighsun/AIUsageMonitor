@@ -162,11 +162,19 @@ public sealed record ExportPayload(
 /// Represents the token usage distribution for a specific model within an export payload.
 /// </summary>
 /// <param name="ModelName">The name of the model.</param>
+/// <param name="InputTokens">The number of input tokens consumed by the model.</param>
+/// <param name="OutputTokens">The number of output tokens produced by the model.</param>
+/// <param name="CacheReadTokens">The number of tokens read from cache.</param>
+/// <param name="CacheCreationTokens">The number of tokens used to create cache entries.</param>
 /// <param name="TotalTokens">The total number of tokens consumed by the model.</param>
 /// <param name="Percentage">The percentage of overall token usage attributed to this model.</param>
 /// <param name="EstimatedCost">The estimated monetary cost of usage for this model.</param>
 public sealed record ExportModelDistribution(
     string ModelName,
+    long InputTokens,
+    long OutputTokens,
+    long CacheReadTokens,
+    long CacheCreationTokens,
     long TotalTokens,
     double Percentage,
     decimal EstimatedCost);
