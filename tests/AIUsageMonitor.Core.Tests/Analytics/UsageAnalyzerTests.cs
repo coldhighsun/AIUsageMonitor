@@ -24,6 +24,39 @@ public class UsageAnalyzerTests
     }
 
     [Fact]
+    public void GetDailySummary_EstimatesCost_UsingModelsRealInputOutputRatio()
+    {
+        var cache = BuildCache();
+
+        var summary = _sut.GetDailySummary(cache, new(2026, 8, 1));
+
+        Assert.NotNull(summary);
+        // sonnet-5 ModelUsage: input=300, output=100, cacheRead=50, cacheCreation=50 (total=500).
+        // Day total is 1000 tokens, so scale=2x that ratio: input=600, output=200, cacheRead=100, cacheCreation=100.
+        var costCalculator = new CostCalculator();
+        var expected = costCalculator.EstimateCost("sonnet-5", 600, 200, 100, 100);
+        Assert.Equal(expected, summary.EstimatedCost);
+        Assert.NotEqual(costCalculator.EstimateCost("sonnet-5", 250, 250, 500, 0), summary.EstimatedCost);
+    }
+
+    [Fact]
+    public void GetDailySummary_ModelMissingFromModelUsage_FallsBackToApproximateSplit()
+    {
+        var cache = new StatsCache
+        {
+            DailyActivity = [new() { Date = new(2026, 8, 1), MessageCount = 1, SessionCount = 1, ToolCallCount = 0 }],
+            DailyModelTokens = [new() { Date = new(2026, 8, 1), TokensByModel = new() { ["unknown-model"] = 1000 } }],
+            ModelUsage = [],
+        };
+
+        var summary = _sut.GetDailySummary(cache, new(2026, 8, 1));
+
+        Assert.NotNull(summary);
+        var expected = new CostCalculator().EstimateCost("unknown-model", 250, 250, 500, 0);
+        Assert.Equal(expected, summary.EstimatedCost);
+    }
+
+    [Fact]
     public void GetDailySummary_NoModelTokens_TotalTokensIsZero()
     {
         var cache = BuildCache();
