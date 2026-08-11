@@ -31,7 +31,7 @@ public sealed class UsageAnalyzer(CostCalculator costCalculator)
 
         var tokensByModel = modelTokens?.TokensByModel ?? [];
         var totalTokens = tokensByModel.Values.Sum();
-        var cost = EstimateDailyTokensCost(tokensByModel);
+        var cost = EstimateDailyTokensCost(tokensByModel, cache.ModelUsage);
 
         return new(date, activity.MessageCount, activity.SessionCount,
             activity.ToolCallCount, totalTokens, new(tokensByModel), cost);
@@ -124,16 +124,35 @@ public sealed class UsageAnalyzer(CostCalculator costCalculator)
     }
 
     /// <summary>
-    /// Estimates the cost of daily token usage per model by approximating the split between
-    /// input, output, and cache-related tokens.
+    /// Estimates the cost of daily token usage per model by splitting each day's combined
+    /// token total across input, output, and cache-related tokens using that model's
+    /// observed cumulative usage ratio (<paramref name="modelUsage"/>), since the daily
+    /// figures themselves only carry a combined total.
     /// </summary>
-    /// <param name="tokensByModel">The total token counts recorded for each model.</param>
+    /// <param name="tokensByModel">The total token counts recorded for each model on the day being summarized.</param>
+    /// <param name="modelUsage">The cumulative input/output/cache token breakdown recorded for each model.</param>
     /// <returns>The estimated total cost across all models.</returns>
-    private decimal EstimateDailyTokensCost(Dictionary<string, long> tokensByModel)
+    private decimal EstimateDailyTokensCost(Dictionary<string, long> tokensByModel, Dictionary<string, ModelUsageEntry> modelUsage)
     {
         var cost = 0m;
         foreach (var (model, tokens) in tokensByModel)
         {
+            if (modelUsage.TryGetValue(model, out var usage))
+            {
+                var total = usage.InputTokens + usage.OutputTokens
+                    + usage.CacheReadInputTokens + usage.CacheCreationInputTokens;
+                if (total > 0)
+                {
+                    var scale = (decimal)tokens / total;
+                    cost += costCalculator.EstimateCost(model,
+                        (long)(usage.InputTokens * scale),
+                        (long)(usage.OutputTokens * scale),
+                        (long)(usage.CacheReadInputTokens * scale),
+                        (long)(usage.CacheCreationInputTokens * scale));
+                    continue;
+                }
+            }
+
             cost += costCalculator.EstimateCost(model, tokens / 4, tokens / 4, tokens / 2, 0);
         }
         return cost;
