@@ -14,6 +14,13 @@ public sealed class MessageContent
     public System.Text.Json.JsonElement? Content { get; init; }
 
     /// <summary>
+    /// Gets the API-assigned identifier of the message (e.g. <c>msg_...</c>), used to detect
+    /// duplicate transcript lines that carry the same usage.
+    /// </summary>
+    [JsonPropertyName("id")]
+    public string? Id { get; init; }
+
+    /// <summary>
     /// Gets the name of the model that generated the message.
     /// </summary>
     [JsonPropertyName("model")]
@@ -48,6 +55,13 @@ public sealed class SessionMessage
     /// </summary>
     [JsonPropertyName("message")]
     public MessageContent? Message { get; init; }
+
+    /// <summary>
+    /// Gets the API request identifier associated with this transcript line, used together with
+    /// <see cref="MessageContent.Id"/> to detect duplicate lines for the same assistant response.
+    /// </summary>
+    [JsonPropertyName("requestId")]
+    public string? RequestId { get; init; }
 
     /// <summary>
     /// Gets the identifier of the session this message belongs to.
