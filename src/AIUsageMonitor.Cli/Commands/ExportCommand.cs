@@ -46,7 +46,9 @@ public static class ExportCommand
                     cache.TotalMessages,
                     cache.DailyActivity,
                     cache.DailyModelTokens,
-                    models.Select(m => new ExportModelDistribution(m.ModelName, m.TotalTokens, m.Percentage, m.EstimatedCost)).ToList());
+                    models.Select(m => new ExportModelDistribution(
+                        m.ModelName, m.InputTokens, m.OutputTokens, m.CacheReadTokens, m.CacheCreationTokens,
+                        m.TotalTokens, m.Percentage, m.EstimatedCost)).ToList());
                 content = JsonSerializer.Serialize(payload, CoreJsonContext.Default.ExportPayload);
             }
 
@@ -84,10 +86,10 @@ public static class ExportCommand
         }
 
         sb.AppendLine();
-        sb.AppendLine("model,total_tokens,percentage,estimated_cost");
+        sb.AppendLine("model,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,total_tokens,percentage,estimated_cost");
         foreach (var m in models)
         {
-            sb.AppendLine($"{m.ModelName},{m.TotalTokens},{m.Percentage:F1},{m.EstimatedCost:F2}");
+            sb.AppendLine($"{m.ModelName},{m.InputTokens},{m.OutputTokens},{m.CacheReadTokens},{m.CacheCreationTokens},{m.TotalTokens},{m.Percentage:F1},{m.EstimatedCost:F2}");
         }
 
         return sb.ToString();
