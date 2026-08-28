@@ -26,6 +26,14 @@ A read-only analytics layer over Claude Code's own local usage data. It never ca
 
 ### Install
 
+via [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/)
+
+```
+winget install coldhighsun.AIUsageMonitor.Cli
+```
+
+Or via [dotnet tool](https://learn.microsoft.com/en-us/dotnet/core/tools/global-tools-how-to-use) (cross-platform):
+
 ```
 dotnet tool install --global AIUsageMonitor.Cli
 ```
@@ -89,6 +97,14 @@ MIT — see [LICENSE](LICENSE).
 - **AIUsageMonitor.WPF** — Windows 桌面仪表盘(WPF,仅支持 Windows)。
 
 ### 安装
+
+通过 [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/) 安装:
+
+```
+winget install coldhighsun.AIUsageMonitor.Cli
+```
+
+或通过 [dotnet tool](https://learn.microsoft.com/en-us/dotnet/core/tools/global-tools-how-to-use) 安装(跨平台):
 
 ```
 dotnet tool install --global AIUsageMonitor.Cli
