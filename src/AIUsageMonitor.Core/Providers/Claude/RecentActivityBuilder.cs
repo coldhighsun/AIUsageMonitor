@@ -29,7 +29,7 @@ public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, Cos
         long totalTokens = 0;
         var sessionIds = new HashSet<string>();
         var tokensByModel = new Dictionary<string, long>();
-        var modelUsage = new Dictionary<string, (long Input, long Output, long CacheRead, long CacheCreation)>();
+        var modelUsage = new Dictionary<string, (long Input, long Output, long CacheRead, long CacheCreation5m, long CacheCreation1h)>();
         var hourBuckets = new Dictionary<DateTimeOffset, (int Messages, long Tokens)>();
 
         for (var fileIndex = 0; fileIndex < sessionFiles.Count; fileIndex++)
@@ -45,7 +45,8 @@ public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, Cos
         }
 
         var estimatedCost = modelUsage.Sum(kvp =>
-            costCalculator.EstimateCost(kvp.Key, kvp.Value.Input, kvp.Value.Output, kvp.Value.CacheRead, kvp.Value.CacheCreation));
+            costCalculator.EstimateCost(kvp.Key, kvp.Value.Input, kvp.Value.Output, kvp.Value.CacheRead,
+                kvp.Value.CacheCreation5m, kvp.Value.CacheCreation1h));
 
         var firstHour = new DateTimeOffset(since.Year, since.Month, since.Day, since.Hour, 0, 0, since.Offset);
         var lastHour = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, 0, 0, now.Offset);
@@ -119,12 +120,17 @@ public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, Cos
                         tokensByModel[model] = tokensByModel.GetValueOrDefault(model) + tokens;
                         bucket.Tokens += tokens;
 
+                        var (cacheCreation5m, cacheCreation1h) = usage.CacheCreation is { } detail
+                            ? (detail.Ephemeral5mInputTokens, detail.Ephemeral1hInputTokens)
+                            : (usage.CacheCreationInputTokens, 0L);
+
                         var entry = modelUsage.GetValueOrDefault(model);
                         modelUsage[model] = (
                             entry.Input + usage.InputTokens,
                             entry.Output + usage.OutputTokens,
                             entry.CacheRead + usage.CacheReadInputTokens,
-                            entry.CacheCreation + usage.CacheCreationInputTokens);
+                            entry.CacheCreation5m + cacheCreation5m,
+                            entry.CacheCreation1h + cacheCreation1h);
                     }
                 }
 

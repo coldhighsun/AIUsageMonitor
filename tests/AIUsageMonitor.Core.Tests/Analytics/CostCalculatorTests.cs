@@ -15,7 +15,7 @@ public class CostCalculatorTests
 
         var cost = _sut.EstimateCost("sonnet-5", usage);
 
-        Assert.Equal(3m, cost);
+        Assert.Equal(2m, cost);
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public class CostCalculatorTests
         var cost = _sut.EstimateCost("sonnet-5", inputTokens: 0, outputTokens: 0,
             cacheReadTokens: 1_000_000, cacheCreationTokens: 1_000_000);
 
-        Assert.Equal(0.30m + 3.75m, cost);
+        Assert.Equal(0.20m + 2.5m, cost);
     }
 
     [Fact]
@@ -42,12 +42,12 @@ public class CostCalculatorTests
     {
         var cost = _sut.EstimateCost("CLAUDE-SONNET-5", 1_000_000, 0, 0, 0);
 
-        Assert.Equal(3m, cost);
+        Assert.Equal(2m, cost);
     }
 
     [Theory]
     [InlineData("claude-opus-5-20260101", 5.0, 25.0)]
-    [InlineData("claude-sonnet-5-20260101", 3.0, 15.0)]
+    [InlineData("claude-sonnet-5-20260101", 2.0, 10.0)]
     [InlineData("claude-haiku-4-5-20251001", 1.0, 5.0)]
     public void EstimateCost_ResolvesPricingByModelSubstring(string modelName, double inputPerMTok, double outputPerMTok)
     {
@@ -71,5 +71,32 @@ public class CostCalculatorTests
         var cost = _sut.EstimateCost("sonnet-5", 0, 0, 0, 0);
 
         Assert.Equal(0m, cost);
+    }
+
+    [Fact]
+    public void EstimateCost_WithSplitCacheCreation_Prices1hWriteAtTwiceInput()
+    {
+        var cost = _sut.EstimateCost("sonnet-5", inputTokens: 0, outputTokens: 0,
+            cacheReadTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 1_000_000);
+
+        Assert.Equal(4m, cost);
+    }
+
+    [Fact]
+    public void EstimateCost_WithSplitCacheCreation_Combines5mAnd1hWrites()
+    {
+        var cost = _sut.EstimateCost("sonnet-5", inputTokens: 0, outputTokens: 0,
+            cacheReadTokens: 0, cacheCreation5mTokens: 1_000_000, cacheCreation1hTokens: 1_000_000);
+
+        Assert.Equal(2.5m + 4m, cost);
+    }
+
+    [Fact]
+    public void EstimateCost_WithoutSplit_MatchesSplitOverloadWhenAll1hIsZero()
+    {
+        var blended = _sut.EstimateCost("sonnet-5", 1_000_000, 0, 0, cacheCreationTokens: 1_000_000);
+        var split = _sut.EstimateCost("sonnet-5", 1_000_000, 0, 0, cacheCreation5mTokens: 1_000_000, cacheCreation1hTokens: 0);
+
+        Assert.Equal(blended, split);
     }
 }

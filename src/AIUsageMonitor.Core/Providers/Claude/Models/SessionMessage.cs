@@ -100,6 +100,14 @@ public sealed class TokenUsage
     public long CacheCreationInputTokens { get; init; }
 
     /// <summary>
+    /// Gets the breakdown of cache-creation tokens by TTL (5-minute vs 1-hour), when the
+    /// transcript line reports it. <see langword="null"/> for older transcript lines that
+    /// only carry the combined <see cref="CacheCreationInputTokens"/> total.
+    /// </summary>
+    [JsonPropertyName("cache_creation")]
+    public CacheCreationDetail? CacheCreation { get; init; }
+
+    /// <summary>
     /// Gets the number of tokens read from the cache.
     /// </summary>
     [JsonPropertyName("cache_read_input_tokens")]
@@ -116,4 +124,22 @@ public sealed class TokenUsage
     /// </summary>
     [JsonPropertyName("output_tokens")]
     public long OutputTokens { get; init; }
+}
+
+/// <summary>
+/// Represents the breakdown of cache-creation tokens by TTL, as reported by the Anthropic API.
+/// </summary>
+public sealed class CacheCreationDetail
+{
+    /// <summary>
+    /// Gets the number of cache-creation tokens written with a 5-minute TTL.
+    /// </summary>
+    [JsonPropertyName("ephemeral_5m_input_tokens")]
+    public long Ephemeral5mInputTokens { get; init; }
+
+    /// <summary>
+    /// Gets the number of cache-creation tokens written with a 1-hour TTL.
+    /// </summary>
+    [JsonPropertyName("ephemeral_1h_input_tokens")]
+    public long Ephemeral1hInputTokens { get; init; }
 }
