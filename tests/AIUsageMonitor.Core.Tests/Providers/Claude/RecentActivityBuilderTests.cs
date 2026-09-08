@@ -13,7 +13,7 @@ public class RecentActivityBuilderTests : IDisposable
 
     public RecentActivityBuilderTests()
     {
-        _sut = new RecentActivityBuilder(new SessionFileCache(_sessionParser), new CostCalculator());
+        _sut = new RecentActivityBuilder(new SessionFileCache(_sessionParser, NullLogger<SessionFileCache>.Instance), new CostCalculator());
     }
 
     public void Dispose()

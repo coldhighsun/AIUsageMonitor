@@ -16,7 +16,7 @@ public class ClaudeUsageProviderTests : IDisposable
 
         var locator = new ClaudeDataLocator(_claudeDir);
         var sessionParser = new SessionParser(NullLogger<SessionParser>.Instance);
-        var sessionFileCache = new SessionFileCache(sessionParser);
+        var sessionFileCache = new SessionFileCache(sessionParser, NullLogger<SessionFileCache>.Instance);
         var costCalculator = new CostCalculator();
 
         _sut = new ClaudeUsageProvider(
