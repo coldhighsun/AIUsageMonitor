@@ -12,7 +12,7 @@ public class HourlyActivityBuilderTests : IDisposable
 
     public HourlyActivityBuilderTests()
     {
-        _sut = new HourlyActivityBuilder(new SessionFileCache(_sessionParser));
+        _sut = new HourlyActivityBuilder(new SessionFileCache(_sessionParser, NullLogger<SessionFileCache>.Instance));
     }
 
     public void Dispose()

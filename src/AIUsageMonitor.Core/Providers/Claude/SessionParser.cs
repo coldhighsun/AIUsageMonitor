@@ -16,9 +16,14 @@ public sealed class SessionParser(ILogger<SessionParser> logger)
     /// </summary>
     /// <param name="filePath">The path to the file containing the session messages.</param>
     /// <returns>An enumerable of <see cref="SessionMessage"/> objects parsed from the file.</returns>
+    /// <exception cref="IOException">Thrown if the file cannot be opened for shared reading after retrying.</exception>
     public IEnumerable<SessionMessage> ParseFile(string filePath)
     {
-        foreach (var line in File.ReadLines(filePath))
+        using var stream = OpenWithRetry(filePath);
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
+
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
         {
             if (string.IsNullOrWhiteSpace(line))
             {
@@ -104,5 +109,34 @@ public sealed class SessionParser(ILogger<SessionParser> logger)
             messages.Count(m => m.Type is "user" or "assistant"),
             totalTokens,
             tokensByModel);
+    }
+
+    /// <summary>
+    /// Opens the given file for shared reading, retrying briefly if another process (e.g. the Claude CLI)
+    /// currently has an exclusive lock on it.
+    /// </summary>
+    /// <param name="filePath">The path to the file to open.</param>
+    /// <returns>An open <see cref="FileStream"/> for the file.</returns>
+    private static FileStream OpenWithRetry(string filePath)
+    {
+        const int maxAttempts = 3;
+        var delay = TimeSpan.FromMilliseconds(50);
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return new(
+                    filePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
+            }
+            catch (Exception ex) when (attempt < maxAttempts && (ex is IOException or UnauthorizedAccessException))
+            {
+                Thread.Sleep(delay);
+                delay += delay;
+            }
+        }
     }
 }
