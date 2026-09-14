@@ -108,6 +108,33 @@ public sealed record RecentActivitySummary(
     List<HourBucket> HourlyTrend);
 
 /// <summary>
+/// Represents usage activity within a rate-limit-style window (a rolling 5-hour session block
+/// or a weekly window), used to approximate the "Current session" / "This Week" panels shown
+/// in Claude's own account UI. Since the real reset anchor lives server-side on the Anthropic
+/// account, this window is either pinned to a user-supplied anchor or estimated locally from
+/// transcript timestamps.
+/// </summary>
+/// <param name="WindowStart">The start timestamp of the window.</param>
+/// <param name="ResetsAt">The timestamp at which this window is expected to reset.</param>
+/// <param name="Messages">The total number of messages sent within the window.</param>
+/// <param name="TotalTokens">The total number of tokens used within the window.</param>
+/// <param name="TokensByModel">A mapping of model name to the number of tokens consumed by that model.</param>
+/// <param name="EstimatedCost">The estimated monetary cost of usage within the window.</param>
+/// <param name="IsAnchorEstimated">
+/// <see langword="true"/> when <see cref="WindowStart"/>/<see cref="ResetsAt"/> were derived locally
+/// (not a real account anchor) because no anchor was configured; <see langword="false"/> when they
+/// were pinned to a user-supplied anchor.
+/// </param>
+public sealed record UsageWindowSummary(
+    DateTimeOffset WindowStart,
+    DateTimeOffset ResetsAt,
+    int Messages,
+    long TotalTokens,
+    Dictionary<string, long> TokensByModel,
+    decimal EstimatedCost,
+    bool IsAnchorEstimated);
+
+/// <summary>
 /// Represents aggregated statistics across all sessions.
 /// </summary>
 /// <param name="Total">The total number of sessions.</param>

@@ -192,7 +192,7 @@ public partial class DashboardViewModel : ObservableObject
 
             BuildDailyChart(period);
             BuildModelChart(models);
-            BuildHourlyChart(hours);
+            BuildHourlyChart(hours); 
         }
         catch
         {

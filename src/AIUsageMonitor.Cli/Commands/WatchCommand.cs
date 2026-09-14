@@ -22,21 +22,37 @@ public static class WatchCommand
         var command = new Command("watch", "Continuously refresh a usage view at a fixed interval");
         var viewOption = new Option<string>("--view")
         {
-            Description = "View to refresh: today, week, models, sessions, hours",
-            DefaultValueFactory = _ => "today"
+            Description = "View to refresh: limits, today, week, models, sessions, hours",
+            DefaultValueFactory = _ => "limits"
         };
         var intervalOption = new Option<int>("--interval")
         {
             Description = "Refresh interval in seconds",
             DefaultValueFactory = _ => 2
         };
+        var (sessionAnchorOption, weekAnchorOption) = LimitsAnchors.CreateOptions();
         command.Options.Add(viewOption);
         command.Options.Add(intervalOption);
+        command.Options.Add(sessionAnchorOption);
+        command.Options.Add(weekAnchorOption);
 
         command.SetAction(async (parseResult, ct) =>
         {
             var view = parseResult.GetValue(viewOption)!;
             var interval = Math.Max(1, parseResult.GetValue(intervalOption));
+            var sessionAnchorArg = parseResult.GetValue(sessionAnchorOption);
+            var weekAnchorArg = parseResult.GetValue(weekAnchorOption);
+
+            DateTimeOffset? effectiveSessionAnchor = null;
+            (DayOfWeek Day, TimeSpan TimeOfDay)? effectiveWeekAnchor = null;
+            if (view == "limits")
+            {
+                if (!LimitsAnchors.TryResolve(sessionAnchorArg, weekAnchorArg, out effectiveSessionAnchor, out effectiveWeekAnchor, out var error))
+                {
+                    AnsiConsole.MarkupLine($"[red]{error}[/]");
+                    return 1;
+                }
+            }
 
             IRenderable BuildCurrent(IProgress<int>? progress = null) => view switch
             {
@@ -51,8 +67,16 @@ public static class WatchCommand
                 "models" => SpectreRenderer.BuildModelDistribution(dataService.GetModelDistribution(progress)),
                 "sessions" => SpectreRenderer.BuildSessionStats(dataService.GetSessionStats(progress)),
                 "hours" => SpectreRenderer.BuildHourlyActivity(dataService.GetHourlyActivity(progress)),
-                _ => new Markup($"[red]Unknown view: {view}. Use today|week|models|sessions|hours.[/]")
+                "limits" => BuildLimits(progress),
+                _ => new Markup($"[red]Unknown view: {view}. Use today|week|models|sessions|hours|limits.[/]")
             };
+
+            IRenderable BuildLimits(IProgress<int>? progress)
+            {
+                return SpectreRenderer.BuildUsageLimits(
+                    dataService.GetCurrentSessionWindow(effectiveSessionAnchor, progress),
+                    dataService.GetWeekWindow(effectiveWeekAnchor, progress));
+            }
 
             AnsiConsole.Clear();
 
