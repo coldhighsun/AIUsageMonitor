@@ -60,8 +60,10 @@ Commands:
 - `models` — usage broken down by model
 - `sessions` — per-session summaries
 - `hours` — usage broken down by hour of day
-- `watch` — live-updating view (`today|week|models|sessions|hours`), refreshed on an interval
+- `watch` — live-updating view (`limits|today|week|models|sessions|hours`, default `limits`), refreshed on an interval
 - `export` — export raw analytics; supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
+
+`watch`'s default view, `limits`, approximates the "Current Session" (rolling 5-hour window) and "This Week" usage panels shown in Claude's own account UI. Since the real reset times live on the Anthropic account and can't be read locally, they're estimated from local transcript timestamps unless pinned with `--session-anchor "yyyy-MM-dd HH:mm"` / `--week-anchor "Ddd HH:mm"` (e.g. `--week-anchor "Mon 09:00"`) — the real values you can read from Claude's own UI. If neither is configured and you're in an interactive terminal, `watch` prompts for them once and remembers the answer in `%LOCALAPPDATA%/aimon/limits-settings.json` (or the OS equivalent) for future runs.
 
 ### WPF dashboard (Windows only)
 
@@ -132,8 +134,10 @@ aimon <命令>
 - `models` — 按模型统计用量
 - `sessions` — 每个会话的用量汇总
 - `hours` — 按小时统计用量
-- `watch` — 实时刷新视图(`today|week|models|sessions|hours`),按指定间隔自动刷新
+- `watch` — 实时刷新视图(`limits|today|week|models|sessions|hours`,默认为 `limits`),按指定间隔自动刷新
 - `export` — 导出原始分析数据;支持 `--format json|csv` 与 `--output <path>`(默认输出到标准输出,格式为 JSON)
+
+`watch` 的默认视图 `limits` 近似展示 Claude 官方账户界面中的 "Current Session"(滚动 5 小时窗口)和 "This Week" 用量面板。由于真实的重置时间存储在 Anthropic 账号侧,本地无法读取,默认会根据本地会话记录的时间戳估算;也可以用 `--session-anchor "yyyy-MM-dd HH:mm"` / `--week-anchor "Ddd HH:mm"`(如 `--week-anchor "Mon 09:00"`)锚定从 Claude 官方界面查到的真实值。如果两者都未配置且在交互式终端中运行,`watch` 会提示输入一次,并把结果保存到 `%LOCALAPPDATA%/aimon/limits-settings.json`(或对应系统的等效路径)供后续运行复用。
 
 ### WPF 仪表盘(仅 Windows)
 

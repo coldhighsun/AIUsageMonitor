@@ -26,6 +26,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<CostCalculator>();
         services.AddSingleton<RecentActivityBuilder>();
         services.AddSingleton<HourlyActivityBuilder>();
+        services.AddSingleton<SessionBlockBuilder>();
         services.AddSingleton<HistoryParser>();
         services.AddSingleton<ClaudeUsageProvider>();
         services.AddSingleton<IUsageProvider>(sp => sp.GetRequiredService<ClaudeUsageProvider>());

@@ -12,6 +12,7 @@ namespace AIUsageMonitor.Core.Providers.Claude;
 /// <param name="statsCacheBuilder">Builds a <see cref="StatsCache"/> from session transcripts when the cache is missing or stale.</param>
 /// <param name="recentActivityBuilder">Builds a summary of recent activity from session transcripts.</param>
 /// <param name="hourlyActivityBuilder">Builds hourly activity data from session transcripts.</param>
+/// <param name="sessionBlockBuilder">Builds current-session and weekly usage window summaries from session transcripts.</param>
 /// <param name="sessionActivityTracker">Tracks the latest session file write time without re-scanning the projects directory on every call.</param>
 /// <param name="logger">Logger used to report cache fallback diagnostics.</param>
 public sealed class ClaudeUsageProvider(
@@ -20,6 +21,7 @@ public sealed class ClaudeUsageProvider(
     StatsCacheBuilder statsCacheBuilder,
     RecentActivityBuilder recentActivityBuilder,
     HourlyActivityBuilder hourlyActivityBuilder,
+    SessionBlockBuilder sessionBlockBuilder,
     SessionActivityTracker sessionActivityTracker,
     ILogger<ClaudeUsageProvider> logger) : IUsageProvider
 {
@@ -90,5 +92,27 @@ public sealed class ClaudeUsageProvider(
         }
 
         return statsCacheBuilder.Build(locator.GetSessionFiles(), progress);
+    }
+
+    /// <summary>
+    /// Builds a summary of the current 5-hour session window from Claude session transcripts.
+    /// </summary>
+    /// <param name="anchor">The real window start time, if known; otherwise the window is estimated locally.</param>
+    /// <param name="progress">Optional progress reporter for tracking build progress (0-100).</param>
+    /// <returns>A <see cref="UsageWindowSummary"/> describing the current session window.</returns>
+    public UsageWindowSummary GetCurrentSessionWindow(DateTimeOffset? anchor, IProgress<int>? progress = null)
+    {
+        return sessionBlockBuilder.BuildCurrentSessionWindow(locator.GetSessionFiles(), anchor, progress);
+    }
+
+    /// <summary>
+    /// Builds a summary of the current weekly window from Claude session transcripts.
+    /// </summary>
+    /// <param name="anchor">The real weekly reset day and local time-of-day, if known; otherwise the window is estimated locally.</param>
+    /// <param name="progress">Optional progress reporter for tracking build progress (0-100).</param>
+    /// <returns>A <see cref="UsageWindowSummary"/> describing the current weekly window.</returns>
+    public UsageWindowSummary GetWeekWindow((DayOfWeek Day, TimeSpan TimeOfDay)? anchor, IProgress<int>? progress = null)
+    {
+        return sessionBlockBuilder.BuildWeekWindow(locator.GetSessionFiles(), anchor, progress);
     }
 }

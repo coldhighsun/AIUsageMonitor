@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Build: `dotnet build AIUsageMonitor.slnx`
 - Run CLI (binary name is `aimon`): `dotnet run --project src/AIUsageMonitor.Cli -- <command>`
   - Commands: `today`, `week`, `month`, `models`, `sessions`, `hours`, `watch`, `export`
-  - `watch` takes a sub-view (`today|week|models|sessions|hours`) and refreshes it on an interval
+  - `watch` takes a sub-view (`limits|today|week|models|sessions|hours`, default `limits`) and refreshes it on an interval
+  - `watch` (default `--view limits`) continuously refreshes estimated "current session" (5h) / "this week" usage with reset times (`--interval`, `--session-anchor`, `--week-anchor`; anchors persist to `%LOCALAPPDATA%\aimon\limits-settings.json`)
   - `export` supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
 - Run WPF app (Windows-only): `dotnet run --project src/AIUsageMonitor.WPF`
 - Run tests: `dotnet test AIUsageMonitor.slnx`

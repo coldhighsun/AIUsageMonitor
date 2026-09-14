@@ -180,6 +180,28 @@ public sealed class DataService : IDisposable
     }
 
     /// <summary>
+    /// Gets a summary of the current 5-hour session window.
+    /// </summary>
+    /// <param name="anchor">The real window start time, if known; otherwise the window is estimated locally.</param>
+    /// <param name="progress">An optional progress reporter to report the progress of the operation.</param>
+    /// <returns>The <see cref="UsageWindowSummary"/> for the current session window.</returns>
+    public UsageWindowSummary GetCurrentSessionWindow(DateTimeOffset? anchor, IProgress<int>? progress = null)
+    {
+        return _provider.GetCurrentSessionWindow(anchor, progress);
+    }
+
+    /// <summary>
+    /// Gets a summary of the current weekly window.
+    /// </summary>
+    /// <param name="anchor">The real weekly reset day and local time-of-day, if known; otherwise the window is estimated locally.</param>
+    /// <param name="progress">An optional progress reporter to report the progress of the operation.</param>
+    /// <returns>The <see cref="UsageWindowSummary"/> for the current weekly window.</returns>
+    public UsageWindowSummary GetWeekWindow((DayOfWeek Day, TimeSpan TimeOfDay)? anchor, IProgress<int>? progress = null)
+    {
+        return _provider.GetWeekWindow(anchor, progress);
+    }
+
+    /// <summary>
     /// Gets the session statistics, using the cached stats cache if available. If the stats cache is not cached, it retrieves it from the usage provider and caches it for future use. The method also allows for progress reporting during the retrieval of the stats cache.
     /// </summary>
     /// <param name="progress">An optional progress reporter to report the progress of the operation.</param>

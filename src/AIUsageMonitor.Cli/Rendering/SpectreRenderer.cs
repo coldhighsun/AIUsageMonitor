@@ -192,6 +192,55 @@ public static class SpectreRenderer
     }
 
     /// <summary>
+    /// Builds a single renderable table summarizing both rate-limit-style usage windows
+    /// (the current session and the weekly window), one row per window, including an
+    /// estimated-anchor warning when either window was not pinned to a user-configured real anchor.
+    /// </summary>
+    /// <param name="sessionWindow">The current 5-hour session window data to render.</param>
+    /// <param name="weekWindow">The current weekly window data to render.</param>
+    /// <returns>An <see cref="IRenderable"/> representing both usage windows.</returns>
+    public static IRenderable BuildUsageLimits(UsageWindowSummary sessionWindow, UsageWindowSummary weekWindow)
+    {
+        var table = new Table().Border(TableBorder.Rounded).Title("[bold yellow]Usage Limits[/]");
+        table.AddColumn(new TableColumn("Window").NoWrap());
+        table.AddColumn(new TableColumn("Tokens").RightAligned().NoWrap());
+        table.AddColumn(new TableColumn("Msgs").RightAligned().NoWrap());
+        table.AddColumn(new TableColumn("Cost").RightAligned().NoWrap());
+        table.AddColumn(new TableColumn("Resets At").RightAligned().NoWrap());
+        table.AddColumn(new TableColumn("Time Left").RightAligned().NoWrap());
+
+        AddRow(table, "Session (5h)", sessionWindow);
+        AddRow(table, "Week", weekWindow);
+
+        if (!sessionWindow.IsAnchorEstimated && !weekWindow.IsAnchorEstimated)
+        {
+            return table;
+        }
+
+        var warning = new Markup(
+            "[grey]⚠ No real account anchor configured for the row(s) above marked '~' — that window is estimated " +
+            "locally and may not match your account's actual reset time. Use --session-anchor/--week-anchor to configure.[/]");
+        return new Rows(table, warning);
+
+        static void AddRow(Table table, string label, UsageWindowSummary window)
+        {
+            var now = DateTimeOffset.Now;
+            var remaining = window.ResetsAt > now ? window.ResetsAt - now : TimeSpan.Zero;
+            var resetsAt = window.IsAnchorEstimated
+                ? $"~{window.ResetsAt:MM-dd HH:mm}"
+                : $"{window.ResetsAt:MM-dd HH:mm}";
+
+            table.AddRow(
+                label,
+                FormatTokens(window.TotalTokens),
+                $"{window.Messages:N0}",
+                $"{window.EstimatedCost:C2}",
+                resetsAt,
+                FormatDuration(remaining));
+        }
+    }
+
+    /// <summary>
     /// Renders the daily summary directly to the console.
     /// </summary>
     /// <param name="summary">The daily summary data to render.</param>
