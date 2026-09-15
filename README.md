@@ -63,11 +63,17 @@ Commands:
 - `watch` — live-updating view (`limits|today|week|models|sessions|hours`, default `limits`), refreshed on an interval
 - `export` — export raw analytics; supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
 
-`watch`'s default view, `limits`, approximates the "Current Session" (rolling 5-hour window) and "This Week" usage panels shown in Claude's own account UI, including a **Time Progress** bar (how far each window has elapsed) and a **Token Progress** bar (how close the window is to its token budget). Since the real reset times live on the Anthropic account and can't be read locally, they're estimated from local transcript timestamps unless pinned with `--session-reset "HH:mm"` (e.g. `--session-reset "18:30"` — just copy the reset time Claude itself shows) / `--week-reset "Ddd HH:mm"` (e.g. `--week-reset "Mon 09:00"`). When the session reset time has elapsed and this machine has no activity in the last 5 hours (the account may be idle, or in use on another device), the session row shows as unknown rather than a made-up countdown. The weekly reset is a fixed time assigned to your account, unrelated to activity, so it can't be derived locally at all — without `--week-reset` that row also shows as unknown, with the trailing 7 days of usage shown as an upper bound on the current cycle instead; that fixed time only needs to be entered once, unlike the session reset.
+`watch`'s default view, `limits`, approximates the "Current Session" (rolling 5-hour window) and "This Week" panels from Claude's own account UI, each with a **Time Progress** bar (how far the window has elapsed) and a **Token Progress** bar (how close it is to its budget).
 
-Claude itself only ever shows a usage *percentage*, never the underlying token limit, so the Token Progress bar works the same way: pass `--session-token-progress <percent>` / `--week-token-progress <percent>` (e.g. `--session-token-progress 32` for "32%", copied from Settings > Usage or `/usage` in Claude Code) and `watch` derives a token budget from that percentage and the tokens it has counted for the window so far, then tracks the bar live against that budget without asking again.
+The real reset times and token limits live on your Anthropic account, not locally, so pin them once:
 
-Press `r` while `watch` is running to re-enter any of the four values — reset times and usage percentages (Enter on a prompt keeps its current value or local estimate). If any of the four aren't configured and you're in an interactive terminal, `watch` prompts for them once up front and remembers the answers in `%LOCALAPPDATA%/aimon/limits-settings.json` (or the OS equivalent) for future runs.
+- `--session-reset "HH:mm"` — the session reset time Claude shows (e.g. `"18:30"`)
+- `--week-reset "Ddd HH:mm"` — the weekly reset (e.g. `"Mon 09:00"`); fixed per account, so it only needs entering once, unlike the session reset
+- `--session-token-progress <percent>` / `--week-token-progress <percent>` — the usage % Claude shows (e.g. `32`), used to back out a token budget
+
+Without these, values are estimated from local transcript timestamps, and a row shows as **unknown** rather than a guessed countdown when there isn't enough local evidence (no activity in the last 5 hours, or no weekly anchor at all).
+
+Press `r` while `watch` is running to re-enter any of the four (Enter keeps the current value). In an interactive terminal, unset values are prompted for once up front and saved to `%LOCALAPPDATA%/aimon/limits-settings.json` (or the OS equivalent) for future runs.
 
 ![watch --view limits](docs/images/watch-limits-screenshot.png)
 
@@ -83,7 +89,7 @@ Polls usage data once per minute and renders daily/model/hourly charts.
 
 ### How it works
 
-Provider-specific code lives under `Providers/<Name>/` and implements `IUsageProvider`. Today there is one provider, `Providers/Claude/`: `ClaudeDataLocator` finds the Claude Code data directory, and `StatsCacheParser`, `SessionParser`, and `HistoryParser` parse its JSON/JSONL files (tolerant of malformed lines) via a source-generated `System.Text.Json` context; `ClaudeUsageProvider` wraps them behind `IUsageProvider`. `Analytics/UsageAnalyzer` computes summaries from an `IUsageProvider`'s data using `Analytics/CostCalculator` for token cost estimation. `Services/DataService` is the single facade over all of this, consumed by both the CLI and the WPF app, with a 30-second cache invalidated early by a `FileSystemWatcher` on `stats-cache.json`. Long-running reads accept an optional `IProgress<int>`, which the CLI surfaces as a Spectre.Console progress bar.
+Provider-specific parsing (`Providers/<Name>/`, e.g. `Providers/Claude/`) feeds `Analytics/UsageAnalyzer`, exposed through `Services/DataService` to both the CLI and the WPF app. See [CLAUDE.md](CLAUDE.md) for the full data-flow breakdown.
 
 ### Releases
 
@@ -145,11 +151,17 @@ aimon <命令>
 - `watch` — 实时刷新视图(`limits|today|week|models|sessions|hours`,默认为 `limits`),按指定间隔自动刷新
 - `export` — 导出原始分析数据;支持 `--format json|csv` 与 `--output <path>`(默认输出到标准输出,格式为 JSON)
 
-`watch` 的默认视图 `limits` 近似展示 Claude 官方账户界面中的 "Current Session"(滚动 5 小时窗口)和 "This Week" 用量面板,并附带 **Time Progress**(当前窗口已经过去的时间比例)与 **Token Progress**(当前窗口用量占预算的比例)两条进度条。由于真实的重置时间存储在 Anthropic 账号侧,本地无法读取,默认会根据本地会话记录的时间戳估算;也可以用 `--session-reset "HH:mm"`(如 `--session-reset "18:30"`,照抄 Claude 显示的重置时间即可)/ `--week-reset "Ddd HH:mm"`(如 `--week-reset "Mon 09:00"`)锚定从 Claude 官方界面查到的真实值。会话重置时间过期、且本机近 5 小时无活动记录时(可能账户空闲,也可能正在其他设备使用),会话行会显示为"未知"而不是编造的倒计时。周重置是账号固定的每周时刻,与活动无关,本地无法推算,所以未配置 `--week-reset` 时周行同样显示为"未知",只按近 7 天用量给出当前周期用量的上界;这个固定时刻只需录入一次,不会像会话那样过期。
+`watch` 的默认视图 `limits` 近似展示 Claude 官方账户界面中的 "Current Session"(滚动 5 小时窗口)和 "This Week" 面板,各自附带 **Time Progress**(窗口已过去的时间比例)与 **Token Progress**(用量占预算的比例)两条进度条。
 
-Claude 官方界面本身也只显示用量**百分比**,从不显示背后的 token 上限,因此 Token Progress 走同样的逻辑:传入 `--session-token-progress <百分比>` / `--week-token-progress <百分比>`(如 `--session-token-progress 32`,照抄 Settings > Usage 或 Claude Code 里 `/usage` 显示的 "32%"),`watch` 会结合这个百分比与当前已统计到的 token 数反推出一个预算,之后就能持续实时对照这个预算刷新进度条,不用每次都重新问。
+真实的重置时间和 token 上限存储在 Anthropic 账号侧,本地无法读取,建议各录入一次:
 
-在 `watch` 运行中按 `r` 可随时重新录入这四个值——两个重置时刻和两个用量百分比(提示时直接回车会保留当前值或本地估算)。如果这四项中有任意一项未配置且在交互式终端中运行,`watch` 会一次性提示输入,并把结果保存到 `%LOCALAPPDATA%/aimon/limits-settings.json`(或对应系统的等效路径)供后续运行复用。
+- `--session-reset "HH:mm"` — Claude 显示的会话重置时间(如 `"18:30"`)
+- `--week-reset "Ddd HH:mm"` — 每周重置时刻(如 `"Mon 09:00"`);账号固定不变,只需录入一次,不会像会话那样过期
+- `--session-token-progress <百分比>` / `--week-token-progress <百分比>` — Claude 显示的用量百分比(如 `32`),用来反推出 token 预算
+
+不配置这些参数时,会根据本地会话记录估算;当本地证据不足时(近 5 小时无活动,或压根没有周期锚点),对应行会显示为**未知**,而不是编造一个倒计时。
+
+在 `watch` 运行中按 `r` 可随时重新录入以上四项(直接回车保留当前值)。在交互式终端中,未配置的项会一次性提示输入,并保存到 `%LOCALAPPDATA%/aimon/limits-settings.json`(或对应系统的等效路径)供后续运行复用。
 
 ![watch --view limits](docs/images/watch-limits-screenshot.png)
 
@@ -165,7 +177,7 @@ dotnet run --project src/AIUsageMonitor.WPF
 
 ### 工作原理
 
-各数据源的专属代码位于 `Providers/<名称>/` 下,均实现 `IUsageProvider` 接口。目前只有一个数据源 `Providers/Claude/`:`ClaudeDataLocator` 负责定位 Claude Code 的数据目录,`StatsCacheParser`、`SessionParser`、`HistoryParser` 逐行解析其中的 JSON/JSONL 文件(容忍格式错误的行),解析过程使用源生成的 `System.Text.Json` 上下文;`ClaudeUsageProvider` 将它们封装为 `IUsageProvider`。`Analytics/UsageAnalyzer` 基于某个 `IUsageProvider` 的数据,结合 `Analytics/CostCalculator` 计算 token 成本,生成各类统计摘要。`Services/DataService` 是对上述所有逻辑的统一封装,供 CLI 与 WPF 两端共用,内部对 `stats-cache.json` 做了 30 秒缓存,并通过 `FileSystemWatcher` 提前失效。耗时较长的读取操作支持可选的 `IProgress<int>` 参数,CLI 端会将其渲染为 Spectre.Console 进度条。
+各数据源的专属解析代码位于 `Providers/<名称>/` 下(如 `Providers/Claude/`),结果汇入 `Analytics/UsageAnalyzer`,再通过 `Services/DataService` 统一供 CLI 与 WPF 两端使用。完整的数据流细节见 [CLAUDE.md](CLAUDE.md)。
 
 ### 发布
 
