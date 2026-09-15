@@ -63,7 +63,7 @@ Commands:
 - `watch` — live-updating view (`limits|today|week|models|sessions|hours`, default `limits`), refreshed on an interval
 - `export` — export raw analytics; supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
 
-`watch`'s default view, `limits`, approximates the "Current Session" (rolling 5-hour window) and "This Week" usage panels shown in Claude's own account UI. Since the real reset times live on the Anthropic account and can't be read locally, they're estimated from local transcript timestamps unless pinned with `--session-anchor "yyyy-MM-dd HH:mm"` / `--week-anchor "Ddd HH:mm"` (e.g. `--week-anchor "Mon 09:00"`) — the real values you can read from Claude's own UI. If neither is configured and you're in an interactive terminal, `watch` prompts for them once and remembers the answer in `%LOCALAPPDATA%/aimon/limits-settings.json` (or the OS equivalent) for future runs.
+`watch`'s default view, `limits`, approximates the "Current Session" (rolling 5-hour window) and "This Week" usage panels shown in Claude's own account UI. Since the real reset times live on the Anthropic account and can't be read locally, they're estimated from local transcript timestamps unless pinned with `--session-reset "HH:mm"` (e.g. `--session-reset "18:30"` — just copy the reset time Claude itself shows) / `--week-reset "Ddd HH:mm"` (e.g. `--week-reset "Mon 09:00"`). When the session reset time has elapsed and this machine has no activity in the last 5 hours (the account may be idle, or in use on another device), the session row shows as unknown rather than a made-up countdown. The weekly reset is a fixed time assigned to your account, unrelated to activity, so it can't be derived locally at all — without `--week-reset` that row also shows as unknown, with the trailing 7 days of usage shown as an upper bound on the current cycle instead; that fixed time only needs to be entered once, unlike the session reset. Press `r` while `watch` is running to re-enter either reset time (Enter skips one and keeps the local estimate). If neither reset time is configured and you're in an interactive terminal, `watch` prompts for them once and remembers the answer in `%LOCALAPPDATA%/aimon/limits-settings.json` (or the OS equivalent) for future runs.
 
 ### WPF dashboard (Windows only)
 
@@ -137,7 +137,7 @@ aimon <命令>
 - `watch` — 实时刷新视图(`limits|today|week|models|sessions|hours`,默认为 `limits`),按指定间隔自动刷新
 - `export` — 导出原始分析数据;支持 `--format json|csv` 与 `--output <path>`(默认输出到标准输出,格式为 JSON)
 
-`watch` 的默认视图 `limits` 近似展示 Claude 官方账户界面中的 "Current Session"(滚动 5 小时窗口)和 "This Week" 用量面板。由于真实的重置时间存储在 Anthropic 账号侧,本地无法读取,默认会根据本地会话记录的时间戳估算;也可以用 `--session-anchor "yyyy-MM-dd HH:mm"` / `--week-anchor "Ddd HH:mm"`(如 `--week-anchor "Mon 09:00"`)锚定从 Claude 官方界面查到的真实值。如果两者都未配置且在交互式终端中运行,`watch` 会提示输入一次,并把结果保存到 `%LOCALAPPDATA%/aimon/limits-settings.json`(或对应系统的等效路径)供后续运行复用。
+`watch` 的默认视图 `limits` 近似展示 Claude 官方账户界面中的 "Current Session"(滚动 5 小时窗口)和 "This Week" 用量面板。由于真实的重置时间存储在 Anthropic 账号侧,本地无法读取,默认会根据本地会话记录的时间戳估算;也可以用 `--session-reset "HH:mm"`(如 `--session-reset "18:30"`,照抄 Claude 显示的重置时间即可)/ `--week-reset "Ddd HH:mm"`(如 `--week-reset "Mon 09:00"`)锚定从 Claude 官方界面查到的真实值。会话重置时间过期、且本机近 5 小时无活动记录时(可能账户空闲,也可能正在其他设备使用),会话行会显示为"未知"而不是编造的倒计时。周重置是账号固定的每周时刻,与活动无关,本地无法推算,所以未配置 `--week-reset` 时周行同样显示为"未知",只按近 7 天用量给出当前周期用量的上界;这个固定时刻只需录入一次,不会像会话那样过期。在 `watch` 运行中按 `r` 可随时依次重新录入这两个时刻(回车跳过任意一个即可继续用本地估算)。如果两者都未配置且在交互式终端中运行,`watch` 会提示输入一次,并把结果保存到 `%LOCALAPPDATA%/aimon/limits-settings.json`(或对应系统的等效路径)供后续运行复用。
 
 ### WPF 仪表盘(仅 Windows)
 

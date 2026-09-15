@@ -11,6 +11,12 @@ namespace AIUsageMonitor.Core.Providers.Claude;
 /// session block is derived using a ccusage-style rolling window: messages across all projects
 /// are sorted chronologically and grouped into blocks that start at the first message after
 /// either no prior block, or a &gt;5 hour idle gap, or the prior block having run its full 5 hours.
+/// A supplied reset time takes precedence while it is still in the future, since the user copied
+/// it out of Claude's own UI. It is deliberately not projected past its own window: once it
+/// elapses it says nothing about the next window, because the next window only opens on the first
+/// message after it - and that message may well be sent from another device this machine cannot
+/// see. With no reset time in effect and no local activity in the last 5 hours, the window is
+/// reported as <see cref="WindowConfidence.Unknown"/> rather than guessed.
 /// </summary>
 /// <param name="sessionFileCache">The session file cache used to retrieve session messages from session files.</param>
 /// <param name="costCalculator">The cost calculator used to estimate costs based on token usage.</param>
@@ -23,27 +29,45 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
     /// Builds a summary of the current 5-hour session window.
     /// </summary>
     /// <param name="sessionFiles">A list of session file paths to process.</param>
-    /// <param name="anchor">
-    /// The real window start time, if known (e.g. read from Claude's own UI). When supplied, the
-    /// window is pinned to <paramref name="anchor"/>..<paramref name="anchor"/>+5h instead of being
-    /// estimated.
+    /// <param name="sessionResetAt">
+    /// The real reset time of the current window, if known (e.g. read from Claude's own UI). While
+    /// it is still in the future the window is pinned to the 5 hours ending at it; once it has
+    /// elapsed it is ignored rather than projected forward.
     /// </param>
     /// <param name="progress">An optional progress reporter for tracking build progress (0-100).</param>
     /// <returns>A <see cref="UsageWindowSummary"/> describing the current session window.</returns>
     public UsageWindowSummary BuildCurrentSessionWindow(
-        IReadOnlyList<string> sessionFiles, DateTimeOffset? anchor, IProgress<int>? progress = null)
+        IReadOnlyList<string> sessionFiles, DateTimeOffset? sessionResetAt, IProgress<int>? progress = null)
     {
         var messages = ReadMessages(sessionFiles, progress);
         var now = DateTimeOffset.Now;
 
-        if (anchor is { } rawAnchor)
+        if (sessionResetAt is { } resetAt && now < resetAt)
         {
-            var pinnedStart = RollForwardToCurrentPeriod(rawAnchor, now, SessionWindowDuration);
-            var pinnedEnd = pinnedStart + SessionWindowDuration;
-            return Summarize(messages.Where(m => m.Timestamp >= pinnedStart && m.Timestamp < pinnedEnd),
-                pinnedStart, pinnedEnd, isAnchorEstimated: false);
+            var confirmedStart = resetAt - SessionWindowDuration;
+            return Summarize(messages.Where(m => m.Timestamp >= confirmedStart && m.Timestamp < resetAt),
+                confirmedStart, resetAt, WindowConfidence.Confirmed);
         }
 
+        var (scanStart, scanLast) = ScanBlocks(messages);
+
+        if (scanStart is null || now - scanLast!.Value > SessionWindowDuration)
+        {
+            return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
+        }
+
+        var estimatedResetsAt = scanStart.Value + SessionWindowDuration;
+        return Summarize(messages.Where(m => m.Timestamp >= scanStart.Value && m.Timestamp < estimatedResetsAt),
+            scanStart.Value, estimatedResetsAt, WindowConfidence.Estimated);
+    }
+
+    /// <summary>
+    /// Groups messages into ccusage-style blocks (split on either a &gt;5 hour idle gap or the
+    /// prior block having run its full 5 hours) and returns the start and last-activity time of
+    /// the latest block, or <c>null</c> for both if there are no messages.
+    /// </summary>
+    private static (DateTimeOffset? Start, DateTimeOffset? Last) ScanBlocks(List<Message> messages)
+    {
         DateTimeOffset? blockStart = null;
         DateTimeOffset? blockLast = null;
 
@@ -59,15 +83,7 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
             blockLast = msg.Timestamp;
         }
 
-        if (blockStart is null || now - blockLast!.Value > SessionWindowDuration)
-        {
-            return new(now, now + SessionWindowDuration, 0, 0, [], 0m, IsAnchorEstimated: true);
-        }
-
-        var windowStart = blockStart.Value;
-        var resetsAt = windowStart + SessionWindowDuration;
-        return Summarize(messages.Where(m => m.Timestamp >= windowStart && m.Timestamp < resetsAt),
-            windowStart, resetsAt, isAnchorEstimated: true);
+        return (blockStart, blockLast);
     }
 
     /// <summary>
@@ -76,8 +92,11 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
     /// <param name="sessionFiles">A list of session file paths to process.</param>
     /// <param name="anchor">
     /// The real weekly reset day and local time-of-day, if known (e.g. read from Claude's own UI).
-    /// When supplied, the window is pinned to the most recent occurrence of that anchor through
-    /// 7 days later instead of being estimated.
+    /// This is a fixed weekly schedule assigned to the account (unlike the 5-hour session, it does
+    /// not depend on activity and never goes stale), so when supplied the window is always pinned
+    /// to the most recent occurrence of it through 7 days later. Without it there is no way to
+    /// derive the real reset instant locally, so the window is reported as unknown; only the
+    /// trailing 7 days of usage - an upper bound on the current cycle's usage - is shown.
     /// </param>
     /// <param name="progress">An optional progress reporter for tracking build progress (0-100).</param>
     /// <returns>A <see cref="UsageWindowSummary"/> describing the current weekly window.</returns>
@@ -92,31 +111,12 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
             var windowStart = MostRecentAnchorOccurrence(now, weeklyAnchor);
             var resetsAt = windowStart + WeekWindowDuration;
             return Summarize(messages.Where(m => m.Timestamp >= windowStart && m.Timestamp < resetsAt),
-                windowStart, resetsAt, isAnchorEstimated: false);
+                windowStart, resetsAt, WindowConfidence.Confirmed);
         }
 
         var since = now - WeekWindowDuration;
-        var inWindow = messages.Where(m => m.Timestamp >= since).ToList();
-
-        if (inWindow.Count == 0)
-        {
-            return new(since, since + WeekWindowDuration, 0, 0, [], 0m, IsAnchorEstimated: true);
-        }
-
-        var earliest = inWindow.Min(m => m.Timestamp);
-        return Summarize(inWindow, since, earliest + WeekWindowDuration, isAnchorEstimated: true);
-    }
-
-    /// <summary>
-    /// Rolls a fixed anchor timestamp forward (or backward) by whole multiples of <paramref name="period"/>
-    /// so the returned start time is that of the period currently containing <paramref name="now"/>. This
-    /// keeps a once-configured anchor (e.g. a session start seen once in Claude's own UI) valid indefinitely,
-    /// instead of going stale after the first period elapses.
-    /// </summary>
-    private static DateTimeOffset RollForwardToCurrentPeriod(DateTimeOffset anchor, DateTimeOffset now, TimeSpan period)
-    {
-        var periodsElapsed = Math.Floor((now - anchor) / period);
-        return anchor + periodsElapsed * period;
+        var inWindow = messages.Where(m => m.Timestamp >= since);
+        return Summarize(inWindow, since, resetsAt: null, WindowConfidence.Unknown);
     }
 
     private static DateTimeOffset MostRecentAnchorOccurrence(DateTimeOffset now, (DayOfWeek Day, TimeSpan TimeOfDay) anchor)
@@ -176,7 +176,7 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
     }
 
     private UsageWindowSummary Summarize(
-        IEnumerable<Message> messages, DateTimeOffset windowStart, DateTimeOffset resetsAt, bool isAnchorEstimated)
+        IEnumerable<Message> messages, DateTimeOffset windowStart, DateTimeOffset? resetsAt, WindowConfidence confidence)
     {
         var messageList = messages.ToList();
         var messageCount = 0;
@@ -226,7 +226,7 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
             costCalculator.EstimateCost(kvp.Key, kvp.Value.Input, kvp.Value.Output, kvp.Value.CacheRead,
                 kvp.Value.CacheCreation5m, kvp.Value.CacheCreation1h));
 
-        return new(windowStart, resetsAt, messageCount, totalTokens, tokensByModel, estimatedCost, isAnchorEstimated);
+        return new(windowStart, resetsAt, messageCount, totalTokens, tokensByModel, estimatedCost, confidence);
     }
 
     private readonly record struct Message(DateTimeOffset Timestamp, SessionMessage Data);

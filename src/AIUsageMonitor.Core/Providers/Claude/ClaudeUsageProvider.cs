@@ -97,12 +97,15 @@ public sealed class ClaudeUsageProvider(
     /// <summary>
     /// Builds a summary of the current 5-hour session window from Claude session transcripts.
     /// </summary>
-    /// <param name="anchor">The real window start time, if known; otherwise the window is estimated locally.</param>
+    /// <param name="sessionResetAt">
+    /// The real reset time of the current window, if known; otherwise the window is estimated
+    /// locally or reported as unknown.
+    /// </param>
     /// <param name="progress">Optional progress reporter for tracking build progress (0-100).</param>
     /// <returns>A <see cref="UsageWindowSummary"/> describing the current session window.</returns>
-    public UsageWindowSummary GetCurrentSessionWindow(DateTimeOffset? anchor, IProgress<int>? progress = null)
+    public UsageWindowSummary GetCurrentSessionWindow(DateTimeOffset? sessionResetAt, IProgress<int>? progress = null)
     {
-        return sessionBlockBuilder.BuildCurrentSessionWindow(locator.GetSessionFiles(), anchor, progress);
+        return sessionBlockBuilder.BuildCurrentSessionWindow(locator.GetSessionFiles(), sessionResetAt, progress);
     }
 
     /// <summary>

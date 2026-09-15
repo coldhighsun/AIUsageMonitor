@@ -3,16 +3,16 @@ using System.Text.Json;
 namespace AIUsageMonitor.Cli;
 
 /// <summary>
-/// Persisted user preferences for the <c>limits</c> command: the anchors used to pin the
-/// "Current session"/"This Week" windows to the account's real reset times.
+/// Persisted user preferences for the <c>limits</c> command: the real reset times used to pin the
+/// "Current session"/"This Week" windows to the account's own schedule.
 /// </summary>
-/// <param name="SessionAnchor">The real current-session window start time, if configured.</param>
-/// <param name="WeekAnchor">The real weekly reset anchor, as originally typed (e.g. "Mon 09:00"), if configured.</param>
+/// <param name="SessionResetAt">The real reset time of the current session window, if configured.</param>
+/// <param name="WeekResetAt">The real weekly reset time, as originally typed (e.g. "Mon 09:00"), if configured.</param>
 public sealed record LimitsSettings(
-    DateTimeOffset? SessionAnchor,
-    string? WeekAnchor)
+    DateTimeOffset? SessionResetAt,
+    string? WeekResetAt)
 {
-    /// <summary>An empty settings instance with no configured anchors.</summary>
+    /// <summary>An empty settings instance with no configured reset times.</summary>
     public static readonly LimitsSettings Empty = new(null, null);
 }
 

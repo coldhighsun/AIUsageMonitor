@@ -1,4 +1,5 @@
 using AIUsageMonitor.Core.Analytics;
+using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Providers.Claude;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -32,7 +33,7 @@ public class SessionBlockBuilderTests : IDisposable
            + ",\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}";
 
     [Fact]
-    public void BuildCurrentSessionWindow_NoAnchor_SplitsOnIdleGapAndKeepsOnlyLatestBlock()
+    public void BuildCurrentSessionWindow_NoResetTime_SplitsOnIdleGapAndKeepsOnlyLatestBlock()
     {
         var now = DateTimeOffset.Now;
         var oldBlockStart = now.AddHours(-8);
@@ -45,9 +46,9 @@ public class SessionBlockBuilderTests : IDisposable
             BuildLine(now.AddMinutes(-5), "req-new2"),
         ]);
 
-        var result = _sut.BuildCurrentSessionWindow([_tempFile], anchor: null);
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], sessionResetAt: null);
 
-        Assert.True(result.IsAnchorEstimated);
+        Assert.Equal(WindowConfidence.Estimated, result.Confidence);
         Assert.Equal(2, result.Messages);
         Assert.Equal(300, result.TotalTokens);
         Assert.Equal(newBlockStart, result.WindowStart);
@@ -55,43 +56,76 @@ public class SessionBlockBuilderTests : IDisposable
     }
 
     [Fact]
-    public void BuildCurrentSessionWindow_WithAnchor_PinsWindowAndOnlyCountsMessagesWithin()
+    public void BuildCurrentSessionWindow_WithFutureResetTime_PinsWindowAndOutranksLocalActivity()
     {
-        var anchor = DateTimeOffset.Now.AddHours(-2);
-        var outsideWindow = anchor.AddHours(6);
+        // The reset time came from Claude's own UI, so while it is still in the future it wins
+        // over anything inferred locally - here local activity would have placed the window's
+        // start an hour earlier than the pinned window does.
+        var now = DateTimeOffset.Now;
+        var resetAt = now.AddHours(2);
+        var expectedStart = resetAt.AddHours(-5);
 
         File.WriteAllLines(_tempFile,
         [
-            BuildLine(anchor.AddMinutes(10), "req-in"),
-            BuildLine(outsideWindow, "req-out"),
+            BuildLine(now.AddHours(-4), "req-before-window"),
+            BuildLine(now.AddHours(-1), "req-in-window"),
         ]);
 
-        var result = _sut.BuildCurrentSessionWindow([_tempFile], anchor);
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], resetAt);
 
-        Assert.False(result.IsAnchorEstimated);
-        Assert.Equal(anchor, result.WindowStart);
-        Assert.Equal(anchor.AddHours(5), result.ResetsAt);
+        Assert.Equal(WindowConfidence.Confirmed, result.Confidence);
+        Assert.Equal(expectedStart, result.WindowStart);
+        Assert.Equal(resetAt, result.ResetsAt);
         Assert.Equal(1, result.Messages);
         Assert.Equal(150, result.TotalTokens);
     }
 
     [Fact]
-    public void BuildCurrentSessionWindow_WithStaleAnchor_RollsForwardToCurrentPeriod()
+    public void BuildCurrentSessionWindow_WithElapsedResetTimeAndRecentActivity_FallsBackToLocalEstimate()
     {
-        // Anchor was seen 13 hours ago (2 full 5h periods + 3h ago); the current period should
-        // start 2 periods later, i.e. 3 hours ago, not stay pinned to the original anchor.
+        // Once a reset time has elapsed it says nothing about the next window, so local activity
+        // becomes the only evidence left.
         var now = DateTimeOffset.Now;
-        var staleAnchor = now.AddHours(-13);
-        var expectedStart = staleAnchor.AddHours(10);
+        var elapsedResetAt = now.AddHours(-1);
+        var localBlockStart = now.AddHours(-2);
 
-        File.WriteAllLines(_tempFile, [BuildLine(expectedStart.AddMinutes(5), "req-current")]);
+        File.WriteAllLines(_tempFile, [BuildLine(localBlockStart, "req-local")]);
 
-        var result = _sut.BuildCurrentSessionWindow([_tempFile], staleAnchor);
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], elapsedResetAt);
 
-        Assert.False(result.IsAnchorEstimated);
-        Assert.Equal(expectedStart, result.WindowStart);
-        Assert.Equal(expectedStart.AddHours(5), result.ResetsAt);
+        Assert.Equal(WindowConfidence.Estimated, result.Confidence);
+        Assert.Equal(localBlockStart, result.WindowStart);
+        Assert.Equal(localBlockStart.AddHours(5), result.ResetsAt);
         Assert.Equal(1, result.Messages);
+    }
+
+    [Fact]
+    public void BuildCurrentSessionWindow_WithElapsedResetTimeAndStaleActivity_ReportsUnknown()
+    {
+        // Nothing left to go on: the reset time has elapsed and this machine hasn't been used in
+        // over 5 hours. The account may be idle, or busy on another machine - so report neither.
+        var now = DateTimeOffset.Now;
+
+        File.WriteAllLines(_tempFile, [BuildLine(now.AddHours(-8), "req-stale")]);
+
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], now.AddHours(-1));
+
+        Assert.Equal(WindowConfidence.Unknown, result.Confidence);
+        Assert.Null(result.WindowStart);
+        Assert.Null(result.ResetsAt);
+        Assert.Equal(0, result.Messages);
+        Assert.Equal(0, result.TotalTokens);
+    }
+
+    [Fact]
+    public void BuildCurrentSessionWindow_NoResetTimeAndNoLocalActivity_ReportsUnknown()
+    {
+        File.WriteAllLines(_tempFile, Array.Empty<string>());
+
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], sessionResetAt: null);
+
+        Assert.Equal(WindowConfidence.Unknown, result.Confidence);
+        Assert.Null(result.ResetsAt);
     }
 
     [Fact]
@@ -101,15 +135,18 @@ public class SessionBlockBuilderTests : IDisposable
         var line = BuildLine(now.AddMinutes(-5), "req1");
         File.WriteAllLines(_tempFile, [line, line]);
 
-        var result = _sut.BuildCurrentSessionWindow([_tempFile], anchor: null);
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], sessionResetAt: null);
 
         Assert.Equal(150, result.TotalTokens);
         Assert.Equal(150, result.TokensByModel["sonnet-5"]);
     }
 
     [Fact]
-    public void BuildWeekWindow_NoAnchor_UsesRollingSevenDayWindow()
+    public void BuildWeekWindow_NoAnchor_ReportsUnknownResetWithTrailingSevenDayUsage()
     {
+        // The real weekly reset is a fixed time assigned to the account (not activity-driven), so
+        // without a supplied reset time there's no way to derive it locally. The trailing 7 days
+        // of usage is still shown as an upper bound on the current cycle's usage.
         var now = DateTimeOffset.Now;
         var earliest = now.AddDays(-3);
 
@@ -121,9 +158,24 @@ public class SessionBlockBuilderTests : IDisposable
 
         var result = _sut.BuildWeekWindow([_tempFile], anchor: null);
 
-        Assert.True(result.IsAnchorEstimated);
+        Assert.Equal(WindowConfidence.Unknown, result.Confidence);
+        Assert.Null(result.ResetsAt);
+        Assert.NotNull(result.WindowStart);
+        Assert.True(Math.Abs((result.WindowStart!.Value - now.AddDays(-7)).TotalSeconds) < 5);
         Assert.Equal(2, result.Messages);
-        Assert.Equal(earliest.AddDays(7), result.ResetsAt);
+    }
+
+    [Fact]
+    public void BuildWeekWindow_NoAnchorAndNoMessages_ReportsUnknownWithNoUsage()
+    {
+        File.WriteAllLines(_tempFile, Array.Empty<string>());
+
+        var result = _sut.BuildWeekWindow([_tempFile], anchor: null);
+
+        Assert.Equal(WindowConfidence.Unknown, result.Confidence);
+        Assert.Null(result.ResetsAt);
+        Assert.Equal(0, result.Messages);
+        Assert.Equal(0, result.TotalTokens);
     }
 
     [Fact]
@@ -142,7 +194,7 @@ public class SessionBlockBuilderTests : IDisposable
 
         var result = _sut.BuildWeekWindow([_tempFile], anchor);
 
-        Assert.False(result.IsAnchorEstimated);
+        Assert.Equal(WindowConfidence.Confirmed, result.Confidence);
         Assert.Equal(expectedStart, result.WindowStart);
         Assert.Equal(expectedStart.AddDays(7), result.ResetsAt);
         Assert.Equal(1, result.Messages);

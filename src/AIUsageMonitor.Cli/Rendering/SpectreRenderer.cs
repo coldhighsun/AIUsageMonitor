@@ -193,13 +193,19 @@ public static class SpectreRenderer
 
     /// <summary>
     /// Builds a single renderable table summarizing both rate-limit-style usage windows
-    /// (the current session and the weekly window), one row per window, including an
-    /// estimated-anchor warning when either window was not pinned to a user-configured real anchor.
+    /// (the current session and the weekly window), one row per window, followed by a note
+    /// explaining any row that is locally estimated ('~') or could not be determined ('?'),
+    /// and (while the recalibration hotkey is available) a standing reminder of it.
     /// </summary>
     /// <param name="sessionWindow">The current 5-hour session window data to render.</param>
     /// <param name="weekWindow">The current weekly window data to render.</param>
+    /// <param name="recalibrationAvailable">
+    /// Whether the "press r" hotkey hint applies, i.e. whether the caller is actually watching for
+    /// it (it does nothing outside an interactive <c>watch</c> session).
+    /// </param>
     /// <returns>An <see cref="IRenderable"/> representing both usage windows.</returns>
-    public static IRenderable BuildUsageLimits(UsageWindowSummary sessionWindow, UsageWindowSummary weekWindow)
+    public static IRenderable BuildUsageLimits(
+        UsageWindowSummary sessionWindow, UsageWindowSummary weekWindow, bool recalibrationAvailable = true)
     {
         var table = new Table().Border(TableBorder.Rounded).Title("[bold yellow]Usage Limits[/]");
         table.AddColumn(new TableColumn("Window").NoWrap());
@@ -212,30 +218,59 @@ public static class SpectreRenderer
         AddRow(table, "Session (5h)", sessionWindow);
         AddRow(table, "Week", weekWindow);
 
-        if (!sessionWindow.IsAnchorEstimated && !weekWindow.IsAnchorEstimated)
+        var notes = new List<IRenderable> { table };
+
+        if (sessionWindow.Confidence is WindowConfidence.Unknown)
         {
-            return table;
+            notes.Add(new Markup(
+                "[grey]? Session window unknown — no local activity in the last 5 hours. Your account may be idle, or "
+                + "in use on another device this machine can't see.[/]"));
         }
 
-        var warning = new Markup(
-            "[grey]⚠ No real account anchor configured for the row(s) above marked '~' — that window is estimated " +
-            "locally and may not match your account's actual reset time. Use --session-anchor/--week-anchor to configure.[/]");
-        return new Rows(table, warning);
+        if (sessionWindow.Confidence is WindowConfidence.Estimated)
+        {
+            notes.Add(new Markup(
+                "[grey]~ Session estimated from this machine's activity only — the real window may have started "
+                + "earlier on another device, so the actual reset can come sooner.[/]"));
+        }
+
+        if (weekWindow.Confidence is WindowConfidence.Unknown)
+        {
+            notes.Add(new Markup(
+                "[grey]? Weekly reset time not set — showing trailing 7-day usage as an upper bound on the current "
+                + "cycle. Your weekly reset is a fixed time assigned to your account (see Settings > Usage, or "
+                + "/usage in Claude Code).[/]"));
+        }
+
+        if (recalibrationAvailable)
+        {
+            notes.Add(new Markup("[grey]Press [[r]] to enter or update the reset times Claude shows.[/]"));
+        }
+
+        return notes.Count == 1 ? table : new Rows(notes);
 
         static void AddRow(Table table, string label, UsageWindowSummary window)
         {
+            var (tokens, messages, cost) = window.WindowStart is null
+                ? ("—", "—", "—")
+                : (FormatTokens(window.TotalTokens), $"{window.Messages:N0}", $"{window.EstimatedCost:C2}");
+
+            if (window.ResetsAt is not { } resetsAt)
+            {
+                table.AddRow(label, tokens, messages, cost, "?", "unknown");
+                return;
+            }
+
             var now = DateTimeOffset.Now;
-            var remaining = window.ResetsAt > now ? window.ResetsAt - now : TimeSpan.Zero;
-            var resetsAt = window.IsAnchorEstimated
-                ? $"~{window.ResetsAt:MM-dd HH:mm}"
-                : $"{window.ResetsAt:MM-dd HH:mm}";
+            var remaining = resetsAt > now ? resetsAt - now : TimeSpan.Zero;
+            var marker = window.Confidence is WindowConfidence.Estimated ? "~" : "";
 
             table.AddRow(
                 label,
-                FormatTokens(window.TotalTokens),
-                $"{window.Messages:N0}",
-                $"{window.EstimatedCost:C2}",
-                resetsAt,
+                tokens,
+                messages,
+                cost,
+                $"{marker}{resetsAt:MM-dd HH:mm}",
                 FormatDuration(remaining));
         }
     }
