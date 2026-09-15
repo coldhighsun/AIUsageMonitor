@@ -34,7 +34,7 @@ try
     var parseResult = rootCommand.Parse(args);
     var isWatch = parseResult.CommandResult.Command == watchCommand;
 
-    if (parseResult.Errors.Count == 0 && !Console.IsOutputRedirected)
+    if (isWatch && parseResult.Errors.Count == 0 && !Console.IsOutputRedirected)
     {
         AnsiConsole.Clear();
     }

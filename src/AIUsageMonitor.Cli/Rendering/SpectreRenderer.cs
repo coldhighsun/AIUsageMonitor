@@ -239,10 +239,15 @@ public static class SpectreRenderer
         table.AddColumn(HeaderColumn("Time Progress", Justify.Center));
         table.AddColumn(HeaderColumn("Token Progress", Justify.Center));
 
-        AddRow(table, "Session (5h)", sessionWindow, sessionTokenLimit);
+        var sessionFractions = AddRow(table, "Session (5h)", sessionWindow, sessionTokenLimit);
         AddRow(table, "Week", weekWindow, weekTokenLimit);
 
         var notes = new List<IRenderable> { table };
+
+        if (sessionFractions is { } fractions && FormatPaceHint(fractions.Time, fractions.Token) is { } paceHint)
+        {
+            notes.Add(paceHint);
+        }
 
         if (sessionWindow.Confidence is WindowConfidence.Unknown)
         {
@@ -275,29 +280,31 @@ public static class SpectreRenderer
 
         return notes.Count == 1 ? table : new Rows(notes);
 
-        static void AddRow(Table table, string label, UsageWindowSummary window, long? tokenLimit)
+        static (double Time, double Token)? AddRow(Table table, string label, UsageWindowSummary window, long? tokenLimit)
         {
             var (tokens, messages, cost) = window.WindowStart is null
                 ? ("—", "—", "—")
                 : (FormatTokens(window.TotalTokens), $"{window.Messages:N0}", $"{window.EstimatedCost:C2}");
 
-            var tokenProgress = window.WindowStart is not null && tokenLimit is { } limit and > 0
-                ? FormatProgressBar(window.TotalTokens / (double)limit)
-                : "—";
+            var tokenFraction = window.WindowStart is not null && tokenLimit is { } limit and > 0
+                ? window.TotalTokens / (double)limit
+                : (double?)null;
+            var tokenProgress = tokenFraction is { } tf ? FormatProgressBar(tf) : "—";
 
             if (window.ResetsAt is not { } resetsAt)
             {
                 table.AddRow(label, tokens, messages, cost, "?", "unknown", "—", tokenProgress);
-                return;
+                return null;
             }
 
             var now = DateTimeOffset.Now;
             var remaining = resetsAt > now ? resetsAt - now : TimeSpan.Zero;
             var marker = window.Confidence is WindowConfidence.Estimated ? "~" : "";
 
-            var timeProgress = window.WindowStart is { } windowStart && resetsAt > windowStart
-                ? FormatNeutralProgressBar((now - windowStart).Ticks / (double)(resetsAt - windowStart).Ticks)
-                : "—";
+            var timeFraction = window.WindowStart is { } windowStart && resetsAt > windowStart
+                ? (now - windowStart).Ticks / (double)(resetsAt - windowStart).Ticks
+                : (double?)null;
+            var timeProgress = timeFraction is { } tp ? FormatNeutralProgressBar(tp) : "—";
 
             table.AddRow(
                 label,
@@ -308,6 +315,10 @@ public static class SpectreRenderer
                 FormatDuration(remaining),
                 timeProgress,
                 tokenProgress);
+
+            return window.Confidence is WindowConfidence.Unknown || timeFraction is null || tokenFraction is null
+                ? null
+                : (timeFraction.Value, tokenFraction.Value);
         }
     }
 
@@ -395,6 +406,34 @@ public static class SpectreRenderer
     /// unlike token usage, it has no "bad" value worth flagging in color.
     /// </summary>
     private static string FormatNeutralProgressBar(double fraction) => FormatProgressBar(fraction, "grey");
+
+    /// <summary>
+    /// Minimum gap between token-used fraction and time-elapsed fraction (in either direction) before
+    /// a pace hint is shown. Keeps the hint from firing on noise when the two are roughly in step.
+    /// </summary>
+    private const double PaceGapThreshold = 0.15;
+
+    /// <summary>
+    /// Compares how far the session window has progressed in time versus in token usage, and returns a
+    /// note suggesting the user speed up (usage lagging behind time) or slow down (usage running ahead
+    /// of time). Returns <c>null</c> when the gap is within <see cref="PaceGapThreshold"/> (pace looks
+    /// fine, no need to say anything) or the window just started (too little data to be meaningful).
+    /// </summary>
+    private static Markup? FormatPaceHint(double timeFraction, double tokenFraction)
+    {
+        if (timeFraction < 0.05)
+        {
+            return null;
+        }
+
+        var gap = tokenFraction - timeFraction;
+        return gap switch
+        {
+            <= -PaceGapThreshold => new Markup("[green]🐢 Usage is pacing behind time — plenty of headroom to use more.[/]"),
+            >= PaceGapThreshold => new Markup("[orange3]🐇 Usage is pacing ahead of time — consider slowing down.[/]"),
+            _ => null
+        };
+    }
 
     /// <summary>
     /// Renders a fixed-width text progress bar (e.g. <c>[███████████████░░░░░] 72%</c>) for a 0-1
