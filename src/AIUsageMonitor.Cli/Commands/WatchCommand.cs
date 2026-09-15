@@ -1,6 +1,7 @@
 using AIUsageMonitor.Cli.Rendering;
 using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Services;
+using AIUsageMonitor.UpdateCheck;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using System.CommandLine;
@@ -16,8 +17,9 @@ public static class WatchCommand
     /// Creates the "watch" command with its options and action.
     /// </summary>
     /// <param name="dataService">The data service used to retrieve usage data for the specified view.</param>
+    /// <param name="updateChecker">The update checker used to show a persistent notice when a newer version is available.</param>
     /// <returns>A configured <see cref="Command"/> instance for continuously refreshing a usage view.</returns>
-    public static Command Create(DataService dataService)
+    public static Command Create(DataService dataService, IUpdateChecker updateChecker)
     {
         var command = new Command("watch", "Continuously refresh a usage view at a fixed interval");
         var viewOption = new Option<string>("--view")
@@ -99,22 +101,32 @@ public static class WatchCommand
 
             var recalibrationEnabled = view == "limits" && !Console.IsInputRedirected;
 
-            IRenderable BuildCurrent(IProgress<int>? progress = null) => view switch
+            // Checked once, up front - watch is a long-running loop, so the notice needs to be
+            // visible while it runs rather than only after it exits.
+            var updateInfo = await updateChecker.CheckForUpdateAsync(ct);
+            var updateNotice = UpdateNotice.BuildRenderable(updateInfo);
+
+            IRenderable BuildCurrent(IProgress<int>? progress = null)
             {
-                "today" => new Rows(
-                    SpectreRenderer.BuildDailySummary(
-                        dataService.GetDailySummary(DateOnly.FromDateTime(DateTime.Today), progress)
-                            ?? DailySummary.Empty(DateOnly.FromDateTime(DateTime.Today))),
-                    new Rule().RuleStyle("grey"),
-                    SpectreRenderer.BuildHourlyTokenChart(dataService.GetRecentActivity(DateTimeOffset.Now - DateTimeOffset.Now.Date, progress).HourlyTrend)),
-                "week" => SpectreRenderer.BuildPeriodSummary(
-                    dataService.GetPeriodSummary(DateOnly.FromDateTime(DateTime.Today).AddDays(-6), DateOnly.FromDateTime(DateTime.Today), progress)),
-                "models" => SpectreRenderer.BuildModelDistribution(dataService.GetModelDistribution(progress)),
-                "sessions" => SpectreRenderer.BuildSessionStats(dataService.GetSessionStats(progress)),
-                "hours" => SpectreRenderer.BuildHourlyActivity(dataService.GetHourlyActivity(progress)),
-                "limits" => BuildLimits(progress),
-                _ => new Markup($"[red]Unknown view: {view}. Use today|week|models|sessions|hours|limits.[/]")
-            };
+                IRenderable content = view switch
+                {
+                    "today" => new Rows(
+                        SpectreRenderer.BuildDailySummary(
+                            dataService.GetDailySummary(DateOnly.FromDateTime(DateTime.Today), progress)
+                                ?? DailySummary.Empty(DateOnly.FromDateTime(DateTime.Today))),
+                        new Rule().RuleStyle("grey"),
+                        SpectreRenderer.BuildHourlyTokenChart(dataService.GetRecentActivity(DateTimeOffset.Now - DateTimeOffset.Now.Date, progress).HourlyTrend)),
+                    "week" => SpectreRenderer.BuildPeriodSummary(
+                        dataService.GetPeriodSummary(DateOnly.FromDateTime(DateTime.Today).AddDays(-6), DateOnly.FromDateTime(DateTime.Today), progress)),
+                    "models" => SpectreRenderer.BuildModelDistribution(dataService.GetModelDistribution(progress)),
+                    "sessions" => SpectreRenderer.BuildSessionStats(dataService.GetSessionStats(progress)),
+                    "hours" => SpectreRenderer.BuildHourlyActivity(dataService.GetHourlyActivity(progress)),
+                    "limits" => BuildLimits(progress),
+                    _ => new Markup($"[red]Unknown view: {view}. Use today|week|models|sessions|hours|limits.[/]")
+                };
+
+                return WithUpdateNotice(content);
+            }
 
             IRenderable BuildLimits(IProgress<int>? progress)
             {
@@ -131,8 +143,11 @@ public static class WatchCommand
 
             ClearScreen();
 
+            IRenderable WithUpdateNotice(IRenderable content) =>
+                updateNotice is null ? content : new Rows(content, updateNotice);
+
             var current = view == "limits"
-                ? SpectreRenderer.BuildUsageLimits(lastSessionWindow!, lastWeekWindow!, effectiveSessionTokenLimit, effectiveWeekTokenLimit, recalibrationEnabled, effectiveSessionResetAt is not null)
+                ? WithUpdateNotice(SpectreRenderer.BuildUsageLimits(lastSessionWindow!, lastWeekWindow!, effectiveSessionTokenLimit, effectiveWeekTokenLimit, recalibrationEnabled, effectiveSessionResetAt is not null))
                 : ProgressReporter.Run("Loading usage data...", BuildCurrent);
 
             while (!ct.IsCancellationRequested)
