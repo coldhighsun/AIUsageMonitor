@@ -224,14 +224,14 @@ public static class SpectreRenderer
         bool sessionResetConfigured = false)
     {
         var table = new Table().Border(TableBorder.Rounded).Title("[bold yellow]Usage Limits[/]").ShowRowSeparators();
-        table.AddColumn(new TableColumn("Window").Centered());
-        table.AddColumn(new TableColumn("Tokens").Centered().NoWrap());
-        table.AddColumn(new TableColumn("Messages").Centered().NoWrap());
-        table.AddColumn(new TableColumn("Cost").Centered().NoWrap());
-        table.AddColumn(new TableColumn("Resets At").Centered().NoWrap());
-        table.AddColumn(new TableColumn("Time Left").Centered().NoWrap());
-        table.AddColumn(new TableColumn("Time Progress").Centered());
-        table.AddColumn(new TableColumn("Token Progress").Centered());
+        table.AddColumn(HeaderColumn("Window", Justify.Left));
+        table.AddColumn(HeaderColumn("Tokens", Justify.Right).NoWrap());
+        table.AddColumn(HeaderColumn("Messages", Justify.Right).NoWrap());
+        table.AddColumn(HeaderColumn("Cost", Justify.Right).NoWrap());
+        table.AddColumn(HeaderColumn("Resets At", Justify.Right).NoWrap());
+        table.AddColumn(HeaderColumn("Time Left", Justify.Right).NoWrap());
+        table.AddColumn(HeaderColumn("Time Progress", Justify.Center));
+        table.AddColumn(HeaderColumn("Token Progress", Justify.Center));
 
         AddRow(table, "Session (5h)", sessionWindow, sessionTokenLimit);
         AddRow(table, "Week", weekWindow, weekTokenLimit);
@@ -304,6 +304,12 @@ public static class SpectreRenderer
                 tokenProgress);
         }
     }
+
+    /// <summary>
+    /// Creates a <see cref="TableColumn"/> with a centered header and the given data-cell alignment.
+    /// </summary>
+    private static TableColumn HeaderColumn(string header, Justify alignment) =>
+        new(new Markup(header).Centered()) { Alignment = alignment };
 
     /// <summary>
     /// Renders the daily summary directly to the console.
