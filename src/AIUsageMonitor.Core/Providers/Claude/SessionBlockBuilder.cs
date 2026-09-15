@@ -49,7 +49,13 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
                 confirmedStart, resetAt, WindowConfidence.Confirmed);
         }
 
-        var (scanStart, scanLast) = ScanBlocks(messages);
+        // A confirmed reset time that has elapsed is a known boundary: the next window only opens
+        // on the first message after it, so pre-reset activity must not bleed into it even if it
+        // would otherwise look like the same rolling block (no >5h idle gap).
+        var scanCandidates = sessionResetAt is { } elapsedResetAt
+            ? messages.Where(m => m.Timestamp >= elapsedResetAt).ToList()
+            : messages;
+        var (scanStart, scanLast) = ScanBlocks(scanCandidates);
 
         if (scanStart is null || now - scanLast!.Value > SessionWindowDuration)
         {
