@@ -261,6 +261,20 @@ internal static class LimitsAnchors
     private static long DeriveTokenLimit(long tokensSoFar, double progressPercent)
         => Math.Max(1, (long)Math.Round(tokensSoFar / (progressPercent / 100)));
 
+    /// <summary>
+    /// Prompts for a string with <paramref name="defaultText"/> as the value Enter returns (so a
+    /// blank <paramref name="defaultText"/> still lets the user skip by pressing Enter), but only
+    /// displays that default when it's non-empty - <see cref="AnsiConsole.Ask{T}(string, T)"/> would
+    /// otherwise render an empty pair of parentheses (e.g. <c>"Enter a value ():"</c>) when there's
+    /// no current value to default to.
+    /// </summary>
+    private static string Ask(string promptText, string defaultText)
+        => new TextPrompt<string>(promptText)
+            .DefaultValue(defaultText)
+            .ShowDefaultValue(!string.IsNullOrEmpty(defaultText))
+            .AllowEmpty()
+            .Show(AnsiConsole.Console);
+
     /// <param name="currentValue">
     /// The currently configured reset time, if any. Shown as the prompt's default so pressing
     /// Enter keeps it. A fresh entry (including retyping the same clock time, e.g. to confirm it
@@ -279,7 +293,7 @@ internal static class LimitsAnchors
 
         while (true)
         {
-            var input = AnsiConsole.Ask(promptText, defaultText);
+            var input = Ask(promptText, defaultText);
 
             if (string.IsNullOrWhiteSpace(input))
             {
@@ -317,7 +331,7 @@ internal static class LimitsAnchors
 
         while (true)
         {
-            var input = AnsiConsole.Ask(promptText, defaultText);
+            var input = Ask(promptText, defaultText);
 
             if (string.IsNullOrWhiteSpace(input))
             {
@@ -355,7 +369,7 @@ internal static class LimitsAnchors
 
         while (true)
         {
-            var input = AnsiConsole.Ask(promptText, defaultText);
+            var input = Ask(promptText, defaultText);
 
             if (string.IsNullOrWhiteSpace(input))
             {
