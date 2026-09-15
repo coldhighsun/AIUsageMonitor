@@ -48,7 +48,7 @@ jobs:
             archive: tar.gz
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -75,11 +75,12 @@ jobs:
         run: |
           tar -czf aimon-cli-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz -C publish/${{ matrix.rid }} .
 
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
-          draft: true
-          files: aimon-cli-${{ github.ref_name }}-${{ matrix.rid }}.*
+          name: aimon-cli-${{ matrix.rid }}
+          path: aimon-cli-${{ github.ref_name }}-${{ matrix.rid }}.*
+          if-no-files-found: error
 
   finalize-release:
     name: Finalize release notes
@@ -89,13 +90,21 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Set title, generate notes, and publish
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: aimon-cli-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create release with all assets
         uses: softprops/action-gh-release@v2
         with:
           name: AIUsageMonitor ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           draft: false
+          files: dist/*
 
   publish-nuget:
     name: Publish dotnet tool to NuGet
