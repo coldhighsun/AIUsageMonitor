@@ -81,6 +81,14 @@ public static class WatchCommand
                 // reusing the pre-prompt snapshot here would overwrite them with their stale values.
                 saved = LimitsSettingsStore.Load();
 
+                // Re-fetch pinned to the now-resolved reset times: the anchor-less fetch above can
+                // report a different TotalTokens than the pinned window used for every render below
+                // (most visibly for the week window, whose 7-day span makes the two diverge a lot),
+                // so deriving the token limit from the anchor-less totals would make the very next
+                // render show a different percentage than the one just entered.
+                lastSessionWindow = dataService.GetCurrentSessionWindow(effectiveSessionResetAt);
+                lastWeekWindow = dataService.GetWeekWindow(effectiveWeekResetAt);
+
                 if (!LimitsAnchors.ResolveTokenLimit(
                         sessionTokenProgressArg, saved.SessionTokenLimit, lastSessionWindow.TotalTokens, "Session",
                         out effectiveSessionTokenLimit, out error)
