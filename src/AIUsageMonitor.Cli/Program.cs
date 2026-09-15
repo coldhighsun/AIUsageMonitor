@@ -33,6 +33,12 @@ try
 
     var parseResult = rootCommand.Parse(args);
     var isWatch = parseResult.CommandResult.Command == watchCommand;
+
+    if (parseResult.Errors.Count == 0 && !Console.IsOutputRedirected)
+    {
+        AnsiConsole.Clear();
+    }
+
     var exitCode = await parseResult.InvokeAsync();
 
     // watch runs its own update check up front (it's a long-running loop, so the notice needs to
