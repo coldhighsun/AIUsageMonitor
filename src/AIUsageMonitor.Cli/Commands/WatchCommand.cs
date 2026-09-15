@@ -125,13 +125,14 @@ public static class WatchCommand
                     lastWeekWindow,
                     effectiveSessionTokenLimit,
                     effectiveWeekTokenLimit,
-                    recalibrationEnabled);
+                    recalibrationEnabled,
+                    effectiveSessionResetAt is not null);
             }
 
             ClearScreen();
 
             var current = view == "limits"
-                ? SpectreRenderer.BuildUsageLimits(lastSessionWindow!, lastWeekWindow!, effectiveSessionTokenLimit, effectiveWeekTokenLimit, recalibrationEnabled)
+                ? SpectreRenderer.BuildUsageLimits(lastSessionWindow!, lastWeekWindow!, effectiveSessionTokenLimit, effectiveWeekTokenLimit, recalibrationEnabled, effectiveSessionResetAt is not null)
                 : ProgressReporter.Run("Loading usage data...", BuildCurrent);
 
             while (!ct.IsCancellationRequested)

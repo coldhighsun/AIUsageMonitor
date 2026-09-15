@@ -203,7 +203,7 @@ public static class SpectreRenderer
     /// The account's session token limit, or <see langword="null"/> if not configured (in which case
     /// the token-progress column is left blank for that row). Claude itself only ever shows a usage
     /// *percentage*, never this limit, so it is derived once from a percentage the user read off
-    /// Claude's usage display - see <see cref="LimitsAnchors.ResolveTokenLimit"/> - and then used here
+    /// Claude's usage display - see <see cref="Commands.LimitsAnchors.ResolveTokenLimit"/> - and then used here
     /// to track <paramref name="sessionWindow"/>'s live token count against it.
     /// </param>
     /// <param name="weekTokenLimit">The account's weekly token limit, or <see langword="null"/> if not configured.</param>
@@ -211,20 +211,27 @@ public static class SpectreRenderer
     /// Whether the "press r" hotkey hint applies, i.e. whether the caller is actually watching for
     /// it (it does nothing outside an interactive <c>watch</c> session).
     /// </param>
+    /// <param name="sessionResetConfigured">
+    /// Whether a real session reset time is currently configured (e.g. via <c>--session-reset</c>
+    /// or a prior <c>r</c> prompt), regardless of whether it has since elapsed. Used to tell an
+    /// idle account (no reset time known at all) apart from a session that just reset and is
+    /// waiting for its first message.
+    /// </param>
     /// <returns>An <see cref="IRenderable"/> representing both usage windows.</returns>
     public static IRenderable BuildUsageLimits(
         UsageWindowSummary sessionWindow, UsageWindowSummary weekWindow,
-        long? sessionTokenLimit = null, long? weekTokenLimit = null, bool recalibrationAvailable = true)
+        long? sessionTokenLimit = null, long? weekTokenLimit = null, bool recalibrationAvailable = true,
+        bool sessionResetConfigured = false)
     {
         var table = new Table().Border(TableBorder.Rounded).Title("[bold yellow]Usage Limits[/]").ShowRowSeparators();
-        table.AddColumn(new TableColumn("Window").NoWrap());
-        table.AddColumn(new TableColumn("Tokens").RightAligned().NoWrap());
-        table.AddColumn(new TableColumn("Msgs").RightAligned().NoWrap());
-        table.AddColumn(new TableColumn("Cost").RightAligned().NoWrap());
-        table.AddColumn(new TableColumn("Resets At").RightAligned().NoWrap());
-        table.AddColumn(new TableColumn("Time Left").RightAligned().NoWrap());
-        table.AddColumn(new TableColumn("Time Progress").NoWrap());
-        table.AddColumn(new TableColumn("Token Progress").NoWrap());
+        table.AddColumn(new TableColumn("Window").Centered());
+        table.AddColumn(new TableColumn("Tokens").Centered().NoWrap());
+        table.AddColumn(new TableColumn("Messages").Centered().NoWrap());
+        table.AddColumn(new TableColumn("Cost").Centered().NoWrap());
+        table.AddColumn(new TableColumn("Resets At").Centered().NoWrap());
+        table.AddColumn(new TableColumn("Time Left").Centered().NoWrap());
+        table.AddColumn(new TableColumn("Time Progress").Centered());
+        table.AddColumn(new TableColumn("Token Progress").Centered());
 
         AddRow(table, "Session (5h)", sessionWindow, sessionTokenLimit);
         AddRow(table, "Week", weekWindow, weekTokenLimit);
@@ -233,9 +240,11 @@ public static class SpectreRenderer
 
         if (sessionWindow.Confidence is WindowConfidence.Unknown)
         {
-            notes.Add(new Markup(
-                "[grey]? Session window unknown — no local activity in the last 5 hours. Your account may be idle, or "
-                + "in use on another device this machine can't see.[/]"));
+            notes.Add(new Markup(sessionResetConfigured
+                ? "[grey]⏳ Waiting for a new session to start — the previous 5h window has reset and no "
+                  + "activity has been seen yet on this machine.[/]"
+                : "[grey]? Session window unknown — no local activity in the last 5 hours. Your account may be idle, or "
+                  + "in use on another device this machine can't see.[/]"));
         }
 
         if (sessionWindow.Confidence is WindowConfidence.Estimated)
@@ -294,44 +303,6 @@ public static class SpectreRenderer
                 timeProgress,
                 tokenProgress);
         }
-    }
-
-    /// <summary>
-    /// Renders a fixed-width text progress bar (e.g. <c>[███████████████░░░░░] 72%</c>) for a 0-1
-    /// fraction, colored green/yellow/orange/red by how full it is so low/medium/high usage is
-    /// visible at a glance. Used for the token-progress column, where the fraction is a genuine
-    /// "how close to the limit" status. A fraction at or beyond 1 renders as a full, red bar with the
-    /// actual percentage (which can exceed 100%) rather than being silently capped.
-    /// </summary>
-    private static string FormatProgressBar(double fraction)
-    {
-        var color = fraction switch
-        {
-            >= 1.0 => "red",
-            >= 0.85 => "orange3",
-            >= 0.5 => "yellow",
-            _ => "green"
-        };
-
-        return FormatProgressBar(fraction, color);
-    }
-
-    /// <summary>
-    /// Renders the same fixed-width text progress bar as <see cref="FormatProgressBar(double)"/>, but
-    /// in a single neutral color regardless of how full it is. Used for the time-progress column,
-    /// where the fraction just reflects the clock ticking forward rather than a risk level - so
-    /// unlike token usage, it has no "bad" value worth flagging in color.
-    /// </summary>
-    private static string FormatNeutralProgressBar(double fraction) => FormatProgressBar(fraction, "grey");
-
-    private static string FormatProgressBar(double fraction, string color)
-    {
-        const int width = 20;
-        var filledCount = Math.Clamp((int)Math.Round(fraction * width), 0, width);
-        var bar = new string('█', filledCount) + new string('░', width - filledCount);
-        var percentText = $"{fraction * 100:0}%";
-
-        return $"[{color}][[{bar}]] {percentText}[/]";
     }
 
     /// <summary>
@@ -403,6 +374,44 @@ public static class SpectreRenderer
             return $"{ts.Hours}h {ts.Minutes}m";
         }
         return $"{ts.Minutes}m {ts.Seconds}s";
+    }
+
+    /// <summary>
+    /// Renders the same fixed-width text progress bar as <see cref="FormatProgressBar(double)"/>, but
+    /// in a single neutral color regardless of how full it is. Used for the time-progress column,
+    /// where the fraction just reflects the clock ticking forward rather than a risk level - so
+    /// unlike token usage, it has no "bad" value worth flagging in color.
+    /// </summary>
+    private static string FormatNeutralProgressBar(double fraction) => FormatProgressBar(fraction, "grey");
+
+    /// <summary>
+    /// Renders a fixed-width text progress bar (e.g. <c>[███████████████░░░░░] 72%</c>) for a 0-1
+    /// fraction, colored green/yellow/orange/red by how full it is so low/medium/high usage is
+    /// visible at a glance. Used for the token-progress column, where the fraction is a genuine
+    /// "how close to the limit" status. A fraction at or beyond 1 renders as a full, red bar with the
+    /// actual percentage (which can exceed 100%) rather than being silently capped.
+    /// </summary>
+    private static string FormatProgressBar(double fraction)
+    {
+        var color = fraction switch
+        {
+            >= 1.0 => "red",
+            >= 0.85 => "orange3",
+            >= 0.5 => "yellow",
+            _ => "green"
+        };
+
+        return FormatProgressBar(fraction, color);
+    }
+
+    private static string FormatProgressBar(double fraction, string color)
+    {
+        const int width = 20;
+        var filledCount = Math.Clamp((int)Math.Round(fraction * width), 0, width);
+        var bar = new string('█', filledCount) + new string('░', width - filledCount);
+        var percentText = $"{fraction * 100:0}%";
+
+        return $"[{color}][[{bar}]] {percentText}[/]";
     }
 
     /// <summary>

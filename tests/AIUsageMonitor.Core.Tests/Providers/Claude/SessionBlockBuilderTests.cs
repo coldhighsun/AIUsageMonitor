@@ -81,10 +81,11 @@ public class SessionBlockBuilderTests : IDisposable
     }
 
     [Fact]
-    public void BuildCurrentSessionWindow_WithElapsedResetTimeAndRecentActivity_FallsBackToLocalEstimate()
+    public void BuildCurrentSessionWindow_WithElapsedResetTimeAndNoActivitySinceReset_ReportsUnknownAndWaitsForNewSession()
     {
-        // Once a reset time has elapsed it says nothing about the next window, so local activity
-        // becomes the only evidence left.
+        // Once a reset time has elapsed it is a known boundary: activity from before it belongs to
+        // the session that just ended and must not be carried into the next window, even though it
+        // would otherwise look like the same rolling block (no >5h idle gap since it).
         var now = DateTimeOffset.Now;
         var elapsedResetAt = now.AddHours(-1);
         var localBlockStart = now.AddHours(-2);
@@ -93,10 +94,36 @@ public class SessionBlockBuilderTests : IDisposable
 
         var result = _sut.BuildCurrentSessionWindow([_tempFile], elapsedResetAt);
 
+        Assert.Equal(WindowConfidence.Unknown, result.Confidence);
+        Assert.Null(result.WindowStart);
+        Assert.Null(result.ResetsAt);
+        Assert.Equal(0, result.Messages);
+        Assert.Equal(0, result.TotalTokens);
+    }
+
+    [Fact]
+    public void BuildCurrentSessionWindow_WithElapsedResetTimeAndNewActivityAfterReset_StartsFreshFromFirstPostResetMessage()
+    {
+        // Once the new session's first message arrives after a known reset boundary, the window
+        // should start there and only count that new session's usage - not merge in the old one.
+        var now = DateTimeOffset.Now;
+        var elapsedResetAt = now.AddHours(-1);
+        var oldSessionMessage = now.AddHours(-2);
+        var newSessionMessage = now.AddMinutes(-10);
+
+        File.WriteAllLines(_tempFile,
+        [
+            BuildLine(oldSessionMessage, "req-old"),
+            BuildLine(newSessionMessage, "req-new"),
+        ]);
+
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], elapsedResetAt);
+
         Assert.Equal(WindowConfidence.Estimated, result.Confidence);
-        Assert.Equal(localBlockStart, result.WindowStart);
-        Assert.Equal(localBlockStart.AddHours(5), result.ResetsAt);
+        Assert.Equal(newSessionMessage, result.WindowStart);
+        Assert.Equal(newSessionMessage.AddHours(5), result.ResetsAt);
         Assert.Equal(1, result.Messages);
+        Assert.Equal(150, result.TotalTokens);
     }
 
     [Fact]
