@@ -78,6 +78,7 @@ jobs:
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
           files: aimon-cli-${{ github.ref_name }}-${{ matrix.rid }}.*
 
   finalize-release:
@@ -88,12 +89,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Set title and generate notes
+      - name: Set title, generate notes, and publish
         uses: softprops/action-gh-release@v2
         with:
           name: AIUsageMonitor ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
+          draft: false
 
   publish-nuget:
     name: Publish dotnet tool to NuGet
