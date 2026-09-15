@@ -77,6 +77,10 @@ Press `r` while `watch` is running to re-enter any of the four (Enter keeps the 
 
 ![watch --view limits](docs/images/watch-limits-screenshot.png)
 
+### Update checks
+
+Every command checks GitHub for a newer release once after it finishes (`watch` checks once before entering its refresh loop and keeps the notice pinned to the bottom of the view for the whole session). If a newer version is available, a one-line notice with the new version and a link to the release is printed — this never blocks or fails the command, and no data is sent beyond the standard GitHub API request for the latest release.
+
 ### WPF dashboard (Windows only)
 
 > **⚠️ Work in progress — not ready for use yet.** The WPF project is still under active development; expect missing features and rough edges. Use the CLI (`aimon`) for now.
@@ -164,6 +168,10 @@ aimon <命令>
 在 `watch` 运行中按 `r` 可随时重新录入以上四项(直接回车保留当前值)。在交互式终端中,未配置的项会一次性提示输入,并保存到 `%LOCALAPPDATA%/aimon/limits-settings.json`(或对应系统的等效路径)供后续运行复用。
 
 ![watch --view limits](docs/images/watch-limits-screenshot.png)
+
+### 更新检查
+
+每个命令执行结束后都会检查一次 GitHub 上是否有新版本发布(`watch` 会在进入刷新循环前检查一次,并在整个运行期间将提示固定显示在视图底部)。如果有新版本,会打印一行提示,附带新版本号和发布页链接——这不会阻塞或影响命令本身的执行,除了标准的 GitHub 最新发布查询请求外不会发送任何其他数据。
 
 ### WPF 仪表盘(仅 Windows)
 
