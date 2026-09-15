@@ -33,6 +33,103 @@ internal static class LimitsAnchors
     }
 
     /// <summary>
+    /// Creates the shared <c>--session-token-progress</c>/<c>--week-token-progress</c> options. These
+    /// take a *percentage* (what Claude itself displays), not a token count - see
+    /// <see cref="ResolveTokenLimit"/> for how that percentage is turned into a token limit.
+    /// </summary>
+    internal static (Option<double?> SessionTokenProgress, Option<double?> WeekTokenProgress) CreateTokenProgressOptions()
+    {
+        var sessionTokenProgressOption = new Option<double?>("--session-token-progress")
+        {
+            Description = "Current session usage percentage as shown on Claude's own usage page (Settings > Usage, or /usage in Claude Code), e.g. 32 for '32%'. Combined with the tokens counted so far this session to derive a token budget, which is then used to track the token-progress bar live. Only used when --view limits."
+        };
+        var weekTokenProgressOption = new Option<double?>("--week-token-progress")
+        {
+            Description = "Current weekly usage percentage as shown on Claude's own usage page, e.g. 32 for '32%'. Combined with the tokens counted so far this week to derive a token budget. Only used when --view limits."
+        };
+        return (sessionTokenProgressOption, weekTokenProgressOption);
+    }
+
+    /// <summary>
+    /// Interactively prompts for both the session and weekly reset times and token limits, and
+    /// persists the result. Used by <c>watch</c>'s recalibration hotkey. Each prompt shows the
+    /// currently configured value (if any) as its default, so pressing Enter keeps it unchanged - the
+    /// same value is then returned as-is, without being re-validated against the 5-hour session
+    /// window, so a stale (already elapsed) session reset can still be kept without an error round-trip.
+    /// </summary>
+    /// <param name="sessionTokensSoFar">The tokens counted for the current session window so far, used to re-derive its token limit from a freshly entered percentage.</param>
+    /// <param name="weekTokensSoFar">The tokens counted for the current week window so far.</param>
+    /// <returns>The resolved session/weekly reset times and session/weekly token limits.</returns>
+    internal static (
+        DateTimeOffset? SessionResetAt, (DayOfWeek Day, TimeSpan TimeOfDay)? WeekResetAt,
+        long? SessionTokenLimit, long? WeekTokenLimit) PromptAndSaveBoth(long sessionTokensSoFar, long weekTokensSoFar)
+    {
+        var saved = LimitsSettingsStore.Load();
+
+        var sessionResetAt = PromptForSessionReset(saved.SessionResetAt);
+        var (weekResetAt, weekResetRaw) = PromptForWeekReset(saved.WeekResetAt);
+        var sessionTokenLimit = PromptForTokenLimit(
+            saved.SessionTokenLimit, sessionTokensSoFar,
+            "[yellow]Session usage percentage.[/] Enter the percentage Claude's usage display shows "
+                + "(Settings > Usage, or /usage in Claude Code), e.g. 32, or press Enter to keep the current value:");
+        var weekTokenLimit = PromptForTokenLimit(
+            saved.WeekTokenLimit, weekTokensSoFar,
+            "[yellow]Weekly usage percentage.[/] Enter the percentage Claude's usage display shows "
+                + "(Settings > Usage, or /usage in Claude Code), e.g. 32, or press Enter to keep the current value:");
+
+        LimitsSettingsStore.Save(new(sessionResetAt, weekResetRaw, sessionTokenLimit, weekTokenLimit));
+        return (sessionResetAt, weekResetAt, sessionTokenLimit, weekTokenLimit);
+    }
+
+    /// <summary>
+    /// Resolves the token limit for one usage window (session or week) from a usage *percentage* -
+    /// either an explicit CLI argument or (in an interactive terminal) a prompt - combined with the
+    /// tokens this tool has counted for that window so far: <c>limit = tokensSoFar / (percent / 100)</c>.
+    /// Claude itself never shows the underlying limit, only a percentage, so this is the only way to
+    /// derive one locally. The derived limit (not the percentage) is what gets persisted and returned,
+    /// so future refreshes can keep tracking the token-progress bar live against it without asking
+    /// again - until the user recalibrates (e.g. because the account's limit changed).
+    /// </summary>
+    /// <param name="progressPercentArg">The raw <c>--session-token-progress</c>/<c>--week-token-progress</c> argument, if provided.</param>
+    /// <param name="savedLimit">The previously persisted token limit for this window, if any.</param>
+    /// <param name="tokensSoFar">The tokens this tool has counted for the window so far.</param>
+    /// <param name="promptLabel">A short label (e.g. "Session", "Weekly") used in the interactive prompt text.</param>
+    /// <param name="tokenLimit">The resolved token limit, or <see langword="null"/> if not configured.</param>
+    /// <param name="error">An error message describing why resolution failed, if it did.</param>
+    /// <returns><see langword="true"/> if resolution succeeded; <see langword="false"/> if an explicit argument was invalid.</returns>
+    internal static bool ResolveTokenLimit(
+        double? progressPercentArg, long? savedLimit, long tokensSoFar, string promptLabel,
+        out long? tokenLimit, out string? error)
+    {
+        error = null;
+
+        if (progressPercentArg is not null)
+        {
+            if (progressPercentArg <= 0)
+            {
+                tokenLimit = null;
+                error = $"Invalid usage percentage '{progressPercentArg}'. Expected a percentage greater than 0.";
+                return false;
+            }
+
+            tokenLimit = DeriveTokenLimit(tokensSoFar, progressPercentArg.Value);
+            return true;
+        }
+
+        if (savedLimit is not null || Console.IsInputRedirected)
+        {
+            tokenLimit = savedLimit;
+            return true;
+        }
+
+        tokenLimit = PromptForTokenLimit(
+            currentLimit: null, tokensSoFar,
+            $"[yellow]{promptLabel} usage percentage not set.[/] Enter the percentage Claude's usage display shows "
+                + "(Settings > Usage, or /usage in Claude Code), e.g. 32, or press Enter to skip the token progress bar:");
+        return true;
+    }
+
+    /// <summary>
     /// Parses a weekly reset time string of the form <c>"Ddd HH:mm"</c> (e.g. <c>"Mon 09:00"</c>)
     /// into a day-of-week and local time-of-day pair.
     /// </summary>
@@ -139,7 +236,14 @@ internal static class LimitsAnchors
 
         if (explicitlyProvided || promptedForAnything)
         {
-            LimitsSettingsStore.Save(new(effectiveSessionReset, effectiveWeekResetRaw));
+            // Token limits are resolved separately (see ResolveTokenLimit), since deriving them needs
+            // the tokens counted for the window - which isn't known until after the reset times below
+            // are settled. Carry the currently saved values through unchanged.
+            LimitsSettingsStore.Save(saved with
+            {
+                SessionResetAt = effectiveSessionReset,
+                WeekResetAt = effectiveWeekResetRaw
+            });
         }
 
         sessionResetAt = effectiveSessionReset;
@@ -148,23 +252,14 @@ internal static class LimitsAnchors
     }
 
     /// <summary>
-    /// Interactively prompts for both the session and weekly reset times and persists the result.
-    /// Used by <c>watch</c>'s recalibration hotkey. Each prompt shows the currently configured
-    /// value (if any) as its default, so pressing Enter keeps it unchanged — the same value is
-    /// then returned as-is, without being re-validated against the 5-hour session window, so a
-    /// stale (already elapsed) session reset can still be kept without an error round-trip.
+    /// Derives a token limit from the tokens counted so far and the percentage of that limit they
+    /// represent, as read off Claude's own usage display. Never returns less than 1, since a 0 limit
+    /// would later be divided into and would also get persisted as <c>savedLimit</c>, silently
+    /// breaking the token-progress bar until the user recalibrates - most commonly when tokensSoFar
+    /// is still 0 right after the window has reset.
     /// </summary>
-    /// <returns>The resolved session and weekly reset times.</returns>
-    internal static (DateTimeOffset? SessionResetAt, (DayOfWeek Day, TimeSpan TimeOfDay)? WeekResetAt) PromptAndSaveBoth()
-    {
-        var saved = LimitsSettingsStore.Load();
-
-        var sessionResetAt = PromptForSessionReset(saved.SessionResetAt);
-        var (weekResetAt, weekResetRaw) = PromptForWeekReset(saved.WeekResetAt);
-
-        LimitsSettingsStore.Save(new(sessionResetAt, weekResetRaw));
-        return (sessionResetAt, weekResetAt);
-    }
+    private static long DeriveTokenLimit(long tokensSoFar, double progressPercent)
+        => Math.Max(1, (long)Math.Round(tokensSoFar / (progressPercent / 100)));
 
     /// <param name="currentValue">
     /// The currently configured reset time, if any. Shown as the prompt's default so pressing
@@ -184,7 +279,7 @@ internal static class LimitsAnchors
 
         while (true)
         {
-            var input = AnsiConsole.Ask<string>(promptText, defaultText);
+            var input = AnsiConsole.Ask(promptText, defaultText);
 
             if (string.IsNullOrWhiteSpace(input))
             {
@@ -205,6 +300,44 @@ internal static class LimitsAnchors
         }
     }
 
+    /// <summary>
+    /// Prompts for a usage percentage and derives a token limit from it and <paramref name="tokensSoFar"/>.
+    /// The prompt's default is the percentage <paramref name="currentLimit"/> currently implies (given
+    /// <paramref name="tokensSoFar"/>), so pressing Enter keeps the existing limit unchanged rather
+    /// than re-deriving it from a rounded default percentage.
+    /// </summary>
+    /// <param name="currentLimit">The currently configured token limit, if any.</param>
+    /// <param name="tokensSoFar">The tokens counted for the window so far.</param>
+    /// <param name="promptText">The prompt text to display.</param>
+    private static long? PromptForTokenLimit(long? currentLimit, long tokensSoFar, string promptText)
+    {
+        var defaultText = currentLimit is { } limit and > 0
+            ? (tokensSoFar * 100.0 / limit).ToString("0.##", CultureInfo.InvariantCulture)
+            : "";
+
+        while (true)
+        {
+            var input = AnsiConsole.Ask(promptText, defaultText);
+
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                return null;
+            }
+
+            if (input == defaultText && currentLimit is not null)
+            {
+                return currentLimit;
+            }
+
+            if (double.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed > 0)
+            {
+                return DeriveTokenLimit(tokensSoFar, parsed);
+            }
+
+            AnsiConsole.MarkupLine("[red]Invalid value. Expected a percentage greater than 0, e.g. 32.[/]");
+        }
+    }
+
     /// <param name="currentRaw">
     /// The currently configured reset time, in its originally typed 'Ddd HH:mm' form, if any. Shown
     /// as the prompt's default so pressing Enter keeps it.
@@ -222,7 +355,7 @@ internal static class LimitsAnchors
 
         while (true)
         {
-            var input = AnsiConsole.Ask<string>(promptText, defaultText);
+            var input = AnsiConsole.Ask(promptText, defaultText);
 
             if (string.IsNullOrWhiteSpace(input))
             {
@@ -237,6 +370,9 @@ internal static class LimitsAnchors
             AnsiConsole.MarkupLine("[red]Invalid format. Expected 'Ddd HH:mm', e.g. 'Mon 09:00'.[/]");
         }
     }
+
+    private static DateTimeOffset ToLocalOffset(DateTime localDateTime)
+        => new(localDateTime, TimeZoneInfo.Local.GetUtcOffset(localDateTime));
 
     private static bool TryParseDayOfWeek(string value, out DayOfWeek day)
     {
@@ -287,7 +423,4 @@ internal static class LimitsAnchors
         error = null;
         return true;
     }
-
-    private static DateTimeOffset ToLocalOffset(DateTime localDateTime)
-        => new(localDateTime, TimeZoneInfo.Local.GetUtcOffset(localDateTime));
 }

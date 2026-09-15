@@ -31,10 +31,13 @@ public static class WatchCommand
             DefaultValueFactory = _ => 2
         };
         var (sessionResetOption, weekResetOption) = LimitsAnchors.CreateOptions();
+        var (sessionTokenProgressOption, weekTokenProgressOption) = LimitsAnchors.CreateTokenProgressOptions();
         command.Options.Add(viewOption);
         command.Options.Add(intervalOption);
         command.Options.Add(sessionResetOption);
         command.Options.Add(weekResetOption);
+        command.Options.Add(sessionTokenProgressOption);
+        command.Options.Add(weekTokenProgressOption);
 
         command.SetAction(async (parseResult, ct) =>
         {
@@ -42,16 +45,56 @@ public static class WatchCommand
             var interval = TimeSpan.FromSeconds(Math.Max(1, parseResult.GetValue(intervalOption)));
             var sessionResetArg = parseResult.GetValue(sessionResetOption);
             var weekResetArg = parseResult.GetValue(weekResetOption);
+            var sessionTokenProgressArg = parseResult.GetValue(sessionTokenProgressOption);
+            var weekTokenProgressArg = parseResult.GetValue(weekTokenProgressOption);
 
             DateTimeOffset? effectiveSessionResetAt = null;
             (DayOfWeek Day, TimeSpan TimeOfDay)? effectiveWeekResetAt = null;
+            long? effectiveSessionTokenLimit = null;
+            long? effectiveWeekTokenLimit = null;
+            UsageWindowSummary? lastSessionWindow = null;
+            UsageWindowSummary? lastWeekWindow = null;
+
             if (view == "limits")
             {
-                if (!LimitsAnchors.TryResolve(sessionResetArg, weekResetArg, out effectiveSessionResetAt, out effectiveWeekResetAt, out var error))
+                var saved = LimitsSettingsStore.Load();
+
+                // Usage data is loaded once, up front, before any prompt - both so the "loading" step
+                // doesn't land in between the reset-time and token-percentage prompts below, and so
+                // that single fetch's result is reused for the token-limit derivation and the first
+                // frame rather than being re-fetched. These windows aren't pinned to the real reset
+                // times yet (those are still being asked about below), so the very next refresh tick
+                // re-fetches them properly pinned.
+                (lastSessionWindow, lastWeekWindow) = ProgressReporter.Run("Loading usage data...", p =>
+                    (dataService.GetCurrentSessionWindow(null, p), dataService.GetWeekWindow(null, p)));
+
+                if (!LimitsAnchors.TryResolve(
+                        sessionResetArg, weekResetArg, out effectiveSessionResetAt, out effectiveWeekResetAt, out var error))
                 {
                     AnsiConsole.MarkupLine($"[red]{error}[/]");
                     return 1;
                 }
+
+                // Reload, since TryResolve may have just persisted the reset times entered above -
+                // reusing the pre-prompt snapshot here would overwrite them with their stale values.
+                saved = LimitsSettingsStore.Load();
+
+                if (!LimitsAnchors.ResolveTokenLimit(
+                        sessionTokenProgressArg, saved.SessionTokenLimit, lastSessionWindow.TotalTokens, "Session",
+                        out effectiveSessionTokenLimit, out error)
+                    || !LimitsAnchors.ResolveTokenLimit(
+                        weekTokenProgressArg, saved.WeekTokenLimit, lastWeekWindow.TotalTokens, "Weekly",
+                        out effectiveWeekTokenLimit, out error))
+                {
+                    AnsiConsole.MarkupLine($"[red]{error}[/]");
+                    return 1;
+                }
+
+                LimitsSettingsStore.Save(saved with
+                {
+                    SessionTokenLimit = effectiveSessionTokenLimit,
+                    WeekTokenLimit = effectiveWeekTokenLimit
+                });
             }
 
             var recalibrationEnabled = view == "limits" && !Console.IsInputRedirected;
@@ -75,15 +118,21 @@ public static class WatchCommand
 
             IRenderable BuildLimits(IProgress<int>? progress)
             {
+                lastSessionWindow = dataService.GetCurrentSessionWindow(effectiveSessionResetAt, progress);
+                lastWeekWindow = dataService.GetWeekWindow(effectiveWeekResetAt, progress);
                 return SpectreRenderer.BuildUsageLimits(
-                    dataService.GetCurrentSessionWindow(effectiveSessionResetAt, progress),
-                    dataService.GetWeekWindow(effectiveWeekResetAt, progress),
+                    lastSessionWindow,
+                    lastWeekWindow,
+                    effectiveSessionTokenLimit,
+                    effectiveWeekTokenLimit,
                     recalibrationEnabled);
             }
 
             ClearScreen();
 
-            var current = ProgressReporter.Run("Loading usage data...", p => BuildCurrent(p));
+            var current = view == "limits"
+                ? SpectreRenderer.BuildUsageLimits(lastSessionWindow!, lastWeekWindow!, effectiveSessionTokenLimit, effectiveWeekTokenLimit, recalibrationEnabled)
+                : ProgressReporter.Run("Loading usage data...", BuildCurrent);
 
             while (!ct.IsCancellationRequested)
             {
@@ -113,10 +162,11 @@ public static class WatchCommand
                 }
 
                 ClearScreen();
-                AnsiConsole.MarkupLine("[grey]Press Enter on either prompt to keep using a local estimate.[/]");
-                (effectiveSessionResetAt, effectiveWeekResetAt) = LimitsAnchors.PromptAndSaveBoth();
+                AnsiConsole.MarkupLine("[grey]Press Enter on any prompt to keep using a local estimate or the current value.[/]");
+                (effectiveSessionResetAt, effectiveWeekResetAt, effectiveSessionTokenLimit, effectiveWeekTokenLimit) = LimitsAnchors.PromptAndSaveBoth(
+                    lastSessionWindow?.TotalTokens ?? 0, lastWeekWindow?.TotalTokens ?? 0);
                 ClearScreen();
-                current = ProgressReporter.Run("Loading usage data...", p => BuildCurrent(p));
+                current = ProgressReporter.Run("Loading usage data...", BuildCurrent);
             }
 
             ClearScreen();
@@ -136,6 +186,24 @@ public static class WatchCommand
         catch (IOException)
         {
             // Output is not a real console (piped or redirected), so there is no screen to clear.
+        }
+    }
+
+    private static bool RecalibrationKeyPressed()
+    {
+        try
+        {
+            var pressed = false;
+            while (Console.KeyAvailable)
+            {
+                pressed |= Console.ReadKey(intercept: true).Key == ConsoleKey.R;
+            }
+            return pressed;
+        }
+        catch (InvalidOperationException)
+        {
+            // No console input stream available (e.g. running without a real terminal).
+            return false;
         }
     }
 
@@ -177,23 +245,5 @@ public static class WatchCommand
         }
 
         return false;
-    }
-
-    private static bool RecalibrationKeyPressed()
-    {
-        try
-        {
-            var pressed = false;
-            while (Console.KeyAvailable)
-            {
-                pressed |= Console.ReadKey(intercept: true).Key == ConsoleKey.R;
-            }
-            return pressed;
-        }
-        catch (InvalidOperationException)
-        {
-            // No console input stream available (e.g. running without a real terminal).
-            return false;
-        }
     }
 }

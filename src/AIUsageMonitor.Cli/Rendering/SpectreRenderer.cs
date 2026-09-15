@@ -199,24 +199,35 @@ public static class SpectreRenderer
     /// </summary>
     /// <param name="sessionWindow">The current 5-hour session window data to render.</param>
     /// <param name="weekWindow">The current weekly window data to render.</param>
+    /// <param name="sessionTokenLimit">
+    /// The account's session token limit, or <see langword="null"/> if not configured (in which case
+    /// the token-progress column is left blank for that row). Claude itself only ever shows a usage
+    /// *percentage*, never this limit, so it is derived once from a percentage the user read off
+    /// Claude's usage display - see <see cref="LimitsAnchors.ResolveTokenLimit"/> - and then used here
+    /// to track <paramref name="sessionWindow"/>'s live token count against it.
+    /// </param>
+    /// <param name="weekTokenLimit">The account's weekly token limit, or <see langword="null"/> if not configured.</param>
     /// <param name="recalibrationAvailable">
     /// Whether the "press r" hotkey hint applies, i.e. whether the caller is actually watching for
     /// it (it does nothing outside an interactive <c>watch</c> session).
     /// </param>
     /// <returns>An <see cref="IRenderable"/> representing both usage windows.</returns>
     public static IRenderable BuildUsageLimits(
-        UsageWindowSummary sessionWindow, UsageWindowSummary weekWindow, bool recalibrationAvailable = true)
+        UsageWindowSummary sessionWindow, UsageWindowSummary weekWindow,
+        long? sessionTokenLimit = null, long? weekTokenLimit = null, bool recalibrationAvailable = true)
     {
-        var table = new Table().Border(TableBorder.Rounded).Title("[bold yellow]Usage Limits[/]");
+        var table = new Table().Border(TableBorder.Rounded).Title("[bold yellow]Usage Limits[/]").ShowRowSeparators();
         table.AddColumn(new TableColumn("Window").NoWrap());
         table.AddColumn(new TableColumn("Tokens").RightAligned().NoWrap());
         table.AddColumn(new TableColumn("Msgs").RightAligned().NoWrap());
         table.AddColumn(new TableColumn("Cost").RightAligned().NoWrap());
         table.AddColumn(new TableColumn("Resets At").RightAligned().NoWrap());
         table.AddColumn(new TableColumn("Time Left").RightAligned().NoWrap());
+        table.AddColumn(new TableColumn("Time Progress").NoWrap());
+        table.AddColumn(new TableColumn("Token Progress").NoWrap());
 
-        AddRow(table, "Session (5h)", sessionWindow);
-        AddRow(table, "Week", weekWindow);
+        AddRow(table, "Session (5h)", sessionWindow, sessionTokenLimit);
+        AddRow(table, "Week", weekWindow, weekTokenLimit);
 
         var notes = new List<IRenderable> { table };
 
@@ -249,15 +260,19 @@ public static class SpectreRenderer
 
         return notes.Count == 1 ? table : new Rows(notes);
 
-        static void AddRow(Table table, string label, UsageWindowSummary window)
+        static void AddRow(Table table, string label, UsageWindowSummary window, long? tokenLimit)
         {
             var (tokens, messages, cost) = window.WindowStart is null
                 ? ("—", "—", "—")
                 : (FormatTokens(window.TotalTokens), $"{window.Messages:N0}", $"{window.EstimatedCost:C2}");
 
+            var tokenProgress = window.WindowStart is not null && tokenLimit is { } limit and > 0
+                ? FormatProgressBar(window.TotalTokens / (double)limit)
+                : "—";
+
             if (window.ResetsAt is not { } resetsAt)
             {
-                table.AddRow(label, tokens, messages, cost, "?", "unknown");
+                table.AddRow(label, tokens, messages, cost, "?", "unknown", "—", tokenProgress);
                 return;
             }
 
@@ -265,14 +280,58 @@ public static class SpectreRenderer
             var remaining = resetsAt > now ? resetsAt - now : TimeSpan.Zero;
             var marker = window.Confidence is WindowConfidence.Estimated ? "~" : "";
 
+            var timeProgress = window.WindowStart is { } windowStart && resetsAt > windowStart
+                ? FormatNeutralProgressBar((now - windowStart).Ticks / (double)(resetsAt - windowStart).Ticks)
+                : "—";
+
             table.AddRow(
                 label,
                 tokens,
                 messages,
                 cost,
                 $"{marker}{resetsAt:MM-dd HH:mm}",
-                FormatDuration(remaining));
+                FormatDuration(remaining),
+                timeProgress,
+                tokenProgress);
         }
+    }
+
+    /// <summary>
+    /// Renders a fixed-width text progress bar (e.g. <c>[███████████████░░░░░] 72%</c>) for a 0-1
+    /// fraction, colored green/yellow/orange/red by how full it is so low/medium/high usage is
+    /// visible at a glance. Used for the token-progress column, where the fraction is a genuine
+    /// "how close to the limit" status. A fraction at or beyond 1 renders as a full, red bar with the
+    /// actual percentage (which can exceed 100%) rather than being silently capped.
+    /// </summary>
+    private static string FormatProgressBar(double fraction)
+    {
+        var color = fraction switch
+        {
+            >= 1.0 => "red",
+            >= 0.85 => "orange3",
+            >= 0.5 => "yellow",
+            _ => "green"
+        };
+
+        return FormatProgressBar(fraction, color);
+    }
+
+    /// <summary>
+    /// Renders the same fixed-width text progress bar as <see cref="FormatProgressBar(double)"/>, but
+    /// in a single neutral color regardless of how full it is. Used for the time-progress column,
+    /// where the fraction just reflects the clock ticking forward rather than a risk level - so
+    /// unlike token usage, it has no "bad" value worth flagging in color.
+    /// </summary>
+    private static string FormatNeutralProgressBar(double fraction) => FormatProgressBar(fraction, "grey");
+
+    private static string FormatProgressBar(double fraction, string color)
+    {
+        const int width = 20;
+        var filledCount = Math.Clamp((int)Math.Round(fraction * width), 0, width);
+        var bar = new string('█', filledCount) + new string('░', width - filledCount);
+        var percentText = $"{fraction * 100:0}%";
+
+        return $"[{color}][[{bar}]] {percentText}[/]";
     }
 
     /// <summary>
