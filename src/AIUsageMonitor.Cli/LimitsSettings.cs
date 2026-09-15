@@ -8,12 +8,23 @@ namespace AIUsageMonitor.Cli;
 /// </summary>
 /// <param name="SessionResetAt">The real reset time of the current session window, if configured.</param>
 /// <param name="WeekResetAt">The real weekly reset time, as originally typed (e.g. "Mon 09:00"), if configured.</param>
+/// <param name="SessionTokenLimit">
+/// The account's session (5h) token limit, in tokens. Claude itself only ever shows a usage
+/// *percentage*, never the underlying limit, so this value is not typed in directly - it is derived
+/// once (<c>currentTokens / (enteredPercent / 100)</c>) from the percentage the user read off
+/// Claude's usage display and the token count this tool had counted for the window at that moment.
+/// Once derived it is persisted and reused so the token-progress bar can keep tracking live as
+/// tokens accrue, without asking the user again every refresh.
+/// </param>
+/// <param name="WeekTokenLimit">The account's weekly token limit, derived the same way as <see cref="SessionTokenLimit"/>.</param>
 public sealed record LimitsSettings(
     DateTimeOffset? SessionResetAt,
-    string? WeekResetAt)
+    string? WeekResetAt,
+    long? SessionTokenLimit = null,
+    long? WeekTokenLimit = null)
 {
-    /// <summary>An empty settings instance with no configured reset times.</summary>
-    public static readonly LimitsSettings Empty = new(null, null);
+    /// <summary>An empty settings instance with no configured reset times or token limits.</summary>
+    public static readonly LimitsSettings Empty = new(null, null, null, null);
 }
 
 /// <summary>
