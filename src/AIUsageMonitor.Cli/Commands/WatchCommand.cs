@@ -30,29 +30,31 @@ public static class WatchCommand
             Description = "Refresh interval in seconds",
             DefaultValueFactory = _ => 2
         };
-        var (sessionAnchorOption, weekAnchorOption) = LimitsAnchors.CreateOptions();
+        var (sessionResetOption, weekResetOption) = LimitsAnchors.CreateOptions();
         command.Options.Add(viewOption);
         command.Options.Add(intervalOption);
-        command.Options.Add(sessionAnchorOption);
-        command.Options.Add(weekAnchorOption);
+        command.Options.Add(sessionResetOption);
+        command.Options.Add(weekResetOption);
 
         command.SetAction(async (parseResult, ct) =>
         {
             var view = parseResult.GetValue(viewOption)!;
-            var interval = Math.Max(1, parseResult.GetValue(intervalOption));
-            var sessionAnchorArg = parseResult.GetValue(sessionAnchorOption);
-            var weekAnchorArg = parseResult.GetValue(weekAnchorOption);
+            var interval = TimeSpan.FromSeconds(Math.Max(1, parseResult.GetValue(intervalOption)));
+            var sessionResetArg = parseResult.GetValue(sessionResetOption);
+            var weekResetArg = parseResult.GetValue(weekResetOption);
 
-            DateTimeOffset? effectiveSessionAnchor = null;
-            (DayOfWeek Day, TimeSpan TimeOfDay)? effectiveWeekAnchor = null;
+            DateTimeOffset? effectiveSessionResetAt = null;
+            (DayOfWeek Day, TimeSpan TimeOfDay)? effectiveWeekResetAt = null;
             if (view == "limits")
             {
-                if (!LimitsAnchors.TryResolve(sessionAnchorArg, weekAnchorArg, out effectiveSessionAnchor, out effectiveWeekAnchor, out var error))
+                if (!LimitsAnchors.TryResolve(sessionResetArg, weekResetArg, out effectiveSessionResetAt, out effectiveWeekResetAt, out var error))
                 {
                     AnsiConsole.MarkupLine($"[red]{error}[/]");
                     return 1;
                 }
             }
+
+            var recalibrationEnabled = view == "limits" && !Console.IsInputRedirected;
 
             IRenderable BuildCurrent(IProgress<int>? progress = null) => view switch
             {
@@ -74,35 +76,124 @@ public static class WatchCommand
             IRenderable BuildLimits(IProgress<int>? progress)
             {
                 return SpectreRenderer.BuildUsageLimits(
-                    dataService.GetCurrentSessionWindow(effectiveSessionAnchor, progress),
-                    dataService.GetWeekWindow(effectiveWeekAnchor, progress));
+                    dataService.GetCurrentSessionWindow(effectiveSessionResetAt, progress),
+                    dataService.GetWeekWindow(effectiveWeekResetAt, progress),
+                    recalibrationEnabled);
             }
 
-            AnsiConsole.Clear();
+            ClearScreen();
 
-            var initial = ProgressReporter.Run("Loading usage data...", p => BuildCurrent(p));
+            var current = ProgressReporter.Run("Loading usage data...", p => BuildCurrent(p));
 
-            await AnsiConsole.Live(initial)
-                .StartAsync(async ctx =>
-                {
-                    while (!ct.IsCancellationRequested)
+            while (!ct.IsCancellationRequested)
+            {
+                var recalibrationRequested = false;
+
+                // Spectre's Live display and its prompts cannot draw at the same time, so the
+                // hotkey has to tear the Live display down before asking for the new reset time.
+                await AnsiConsole.Live(current)
+                    .StartAsync(async ctx =>
                     {
-                        ctx.UpdateTarget(BuildCurrent());
-                        ctx.Refresh();
-                        try
+                        while (!ct.IsCancellationRequested)
                         {
-                            await Task.Delay(TimeSpan.FromSeconds(interval), ct);
+                            ctx.UpdateTarget(BuildCurrent());
+                            ctx.Refresh();
+
+                            if (await WaitForRefreshAsync(interval, recalibrationEnabled, ct))
+                            {
+                                recalibrationRequested = true;
+                                return;
+                            }
                         }
-                        catch (OperationCanceledException)
-                        {
-                            break;
-                        }
-                    }
-                });
+                    });
+
+                if (!recalibrationRequested)
+                {
+                    break;
+                }
+
+                ClearScreen();
+                AnsiConsole.MarkupLine("[grey]Press Enter on either prompt to keep using a local estimate.[/]");
+                (effectiveSessionResetAt, effectiveWeekResetAt) = LimitsAnchors.PromptAndSaveBoth();
+                ClearScreen();
+                current = ProgressReporter.Run("Loading usage data...", p => BuildCurrent(p));
+            }
+
+            ClearScreen();
 
             return 0;
         });
 
         return command;
+    }
+
+    private static void ClearScreen()
+    {
+        try
+        {
+            AnsiConsole.Clear();
+        }
+        catch (IOException)
+        {
+            // Output is not a real console (piped or redirected), so there is no screen to clear.
+        }
+    }
+
+    /// <summary>
+    /// Waits out the refresh interval, watching for the recalibration hotkey while it does.
+    /// </summary>
+    /// <returns><see langword="true"/> if the user asked to recalibrate; <see langword="false"/> if the interval simply elapsed or was cancelled.</returns>
+    private static async Task<bool> WaitForRefreshAsync(TimeSpan interval, bool recalibrationEnabled, CancellationToken ct)
+    {
+        var pollInterval = TimeSpan.FromMilliseconds(150);
+        var deadline = DateTimeOffset.Now + interval;
+
+        try
+        {
+            if (!recalibrationEnabled)
+            {
+                await Task.Delay(interval, ct);
+                return false;
+            }
+
+            while (!ct.IsCancellationRequested)
+            {
+                if (RecalibrationKeyPressed())
+                {
+                    return true;
+                }
+
+                var remaining = deadline - DateTimeOffset.Now;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    return false;
+                }
+
+                await Task.Delay(remaining < pollInterval ? remaining : pollInterval, ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        return false;
+    }
+
+    private static bool RecalibrationKeyPressed()
+    {
+        try
+        {
+            var pressed = false;
+            while (Console.KeyAvailable)
+            {
+                pressed |= Console.ReadKey(intercept: true).Key == ConsoleKey.R;
+            }
+            return pressed;
+        }
+        catch (InvalidOperationException)
+        {
+            // No console input stream available (e.g. running without a real terminal).
+            return false;
+        }
     }
 }

@@ -108,31 +108,65 @@ public sealed record RecentActivitySummary(
     List<HourBucket> HourlyTrend);
 
 /// <summary>
+/// Describes how much the boundaries of a <see cref="UsageWindowSummary"/> can be trusted, since
+/// the real reset time lives server-side on the Anthropic account and can only ever be confirmed
+/// by the user copying it out of Claude's own UI.
+/// </summary>
+public enum WindowConfidence
+{
+    /// <summary>
+    /// The window is pinned to a reset time the user supplied from Claude's own UI, and that
+    /// reset time has not yet elapsed.
+    /// </summary>
+    Confirmed,
+
+    /// <summary>
+    /// The window was derived from this machine's local session transcripts. The real window may
+    /// have started earlier on another device, in which case the actual reset comes sooner.
+    /// </summary>
+    Estimated,
+
+    /// <summary>
+    /// The real reset time could not be determined. For the 5-hour session window this also means
+    /// no usage data is available: this machine has no recent activity to derive it from, and no
+    /// supplied reset time is still in effect - the account may be idle, or in use on another
+    /// device whose activity never reaches this machine's session files. For the weekly window
+    /// (a fixed schedule assigned to the account, not activity-driven) it means no reset time was
+    /// ever supplied; usage is still shown, as a trailing-7-day upper bound on the current cycle.
+    /// </summary>
+    Unknown,
+}
+
+/// <summary>
 /// Represents usage activity within a rate-limit-style window (a rolling 5-hour session block
 /// or a weekly window), used to approximate the "Current session" / "This Week" panels shown
-/// in Claude's own account UI. Since the real reset anchor lives server-side on the Anthropic
-/// account, this window is either pinned to a user-supplied anchor or estimated locally from
-/// transcript timestamps.
+/// in Claude's own account UI. Since the real reset time lives server-side on the Anthropic
+/// account, the window is either pinned to a user-supplied reset time, estimated locally from
+/// transcript timestamps, or reported as unknown - see <see cref="WindowConfidence"/>.
 /// </summary>
-/// <param name="WindowStart">The start timestamp of the window.</param>
-/// <param name="ResetsAt">The timestamp at which this window is expected to reset.</param>
+/// <param name="WindowStart">
+/// The start timestamp of the window, or <see langword="null"/> when nothing at all could be
+/// derived (an unknown 5-hour session). For an unknown weekly window this is instead the start of
+/// the trailing 7 days the usage figures cover, since that much can be said even without knowing
+/// the real reset time.
+/// </param>
+/// <param name="ResetsAt">
+/// The timestamp at which this window is expected to reset, or <see langword="null"/> when
+/// <paramref name="Confidence"/> is <see cref="WindowConfidence.Unknown"/>.
+/// </param>
 /// <param name="Messages">The total number of messages sent within the window.</param>
 /// <param name="TotalTokens">The total number of tokens used within the window.</param>
 /// <param name="TokensByModel">A mapping of model name to the number of tokens consumed by that model.</param>
 /// <param name="EstimatedCost">The estimated monetary cost of usage within the window.</param>
-/// <param name="IsAnchorEstimated">
-/// <see langword="true"/> when <see cref="WindowStart"/>/<see cref="ResetsAt"/> were derived locally
-/// (not a real account anchor) because no anchor was configured; <see langword="false"/> when they
-/// were pinned to a user-supplied anchor.
-/// </param>
+/// <param name="Confidence">How much the window boundaries can be trusted.</param>
 public sealed record UsageWindowSummary(
-    DateTimeOffset WindowStart,
-    DateTimeOffset ResetsAt,
+    DateTimeOffset? WindowStart,
+    DateTimeOffset? ResetsAt,
     int Messages,
     long TotalTokens,
     Dictionary<string, long> TokensByModel,
     decimal EstimatedCost,
-    bool IsAnchorEstimated);
+    WindowConfidence Confidence);
 
 /// <summary>
 /// Represents aggregated statistics across all sessions.

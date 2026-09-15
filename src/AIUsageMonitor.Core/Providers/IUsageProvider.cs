@@ -38,10 +38,13 @@ public interface IUsageProvider
     /// <summary>
     /// Retrieves a summary of the current 5-hour session window.
     /// </summary>
-    /// <param name="anchor">The real window start time, if known; otherwise the window is estimated locally.</param>
+    /// <param name="sessionResetAt">
+    /// The real reset time of the current window, if known; otherwise the window is estimated
+    /// locally or reported as unknown.
+    /// </param>
     /// <param name="progress">An optional progress reporter.</param>
     /// <returns>A <see cref="UsageWindowSummary"/> object.</returns>
-    UsageWindowSummary GetCurrentSessionWindow(DateTimeOffset? anchor, IProgress<int>? progress = null);
+    UsageWindowSummary GetCurrentSessionWindow(DateTimeOffset? sessionResetAt, IProgress<int>? progress = null);
 
     /// <summary>
     /// Retrieves a summary of the current weekly window.

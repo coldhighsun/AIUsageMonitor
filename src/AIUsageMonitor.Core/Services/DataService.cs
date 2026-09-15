@@ -182,12 +182,15 @@ public sealed class DataService : IDisposable
     /// <summary>
     /// Gets a summary of the current 5-hour session window.
     /// </summary>
-    /// <param name="anchor">The real window start time, if known; otherwise the window is estimated locally.</param>
+    /// <param name="sessionResetAt">
+    /// The real reset time of the current window, if known; otherwise the window is estimated
+    /// locally or reported as unknown.
+    /// </param>
     /// <param name="progress">An optional progress reporter to report the progress of the operation.</param>
     /// <returns>The <see cref="UsageWindowSummary"/> for the current session window.</returns>
-    public UsageWindowSummary GetCurrentSessionWindow(DateTimeOffset? anchor, IProgress<int>? progress = null)
+    public UsageWindowSummary GetCurrentSessionWindow(DateTimeOffset? sessionResetAt, IProgress<int>? progress = null)
     {
-        return _provider.GetCurrentSessionWindow(anchor, progress);
+        return _provider.GetCurrentSessionWindow(sessionResetAt, progress);
     }
 
     /// <summary>
