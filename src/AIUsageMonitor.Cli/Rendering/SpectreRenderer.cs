@@ -12,6 +12,14 @@ public static class SpectreRenderer
     private static readonly Color[] HourlyBarColors = [Color.Blue, Color.SkyBlue1, Color.Green, Color.Yellow3];
 
     /// <summary>
+    /// A palette for per-row bar charts (e.g. daily tokens) where every consecutive pair - including
+    /// the wrap-around from the last color back to the first - must be visually distinct, since
+    /// adjacent rows are told apart mainly by bar color.
+    /// </summary>
+    private static readonly Color[] DailyBarColors =
+        [Color.Blue, Color.Red, Color.Green, Color.Gold1, Color.Purple, Color.Cyan1];
+
+    /// <summary>
     /// Builds a renderable summary for a single day, including key stats and a token distribution chart by model.
     /// </summary>
     /// <param name="summary">The daily summary data to render.</param>
@@ -33,10 +41,9 @@ public static class SpectreRenderer
 
         var chart = new BarChart().Label("[bold]Tokens by Model[/]").Width(80).UseValueFormatter(v => FormatTokens((long)v));
         var colorIndex = 0;
-        var colors = new[] { Color.Blue, Color.Green, Color.Yellow, Color.Red, Color.Purple, Color.Orange1, Color.Cyan1 };
         foreach (var (model, tokens) in summary.TokensByModel.OrderByDescending(x => x.Value))
         {
-            chart.AddItem(ShortenModelName(model), tokens, colors[colorIndex % colors.Length]);
+            chart.AddItem(ShortenModelName(model), tokens, DailyBarColors[colorIndex % DailyBarColors.Length]);
             colorIndex++;
         }
         return new Rows(table, new Rule().RuleStyle("grey"), chart);
@@ -130,11 +137,10 @@ public static class SpectreRenderer
         }
 
         var chart = new BarChart().Label("[bold]Daily Tokens[/]").Width(80).UseValueFormatter(v => FormatTokens((long)v));
-        var colorIndex = 0;
-        foreach (var day in summary.DailyBreakdown)
+        for (var i = 0; i < summary.DailyBreakdown.Count; i++)
         {
-            chart.AddItem(day.Date.ToString("MM-dd"), day.TotalTokens, HourlyBarColors[colorIndex % HourlyBarColors.Length]);
-            colorIndex++;
+            var day = summary.DailyBreakdown[i];
+            chart.AddItem(day.Date.ToString("MM-dd"), day.TotalTokens, DailyBarColors[i % DailyBarColors.Length]);
         }
         return new Rows(table, new Rule().RuleStyle("grey"), chart);
     }
