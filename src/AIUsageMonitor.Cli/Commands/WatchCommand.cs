@@ -113,6 +113,7 @@ public static class WatchCommand
             // visible while it runs rather than only after it exits.
             var updateInfo = await updateChecker.CheckForUpdateAsync(ct);
             var updateNotice = UpdateNotice.BuildRenderable(updateInfo);
+            var versionFooter = SpectreRenderer.BuildVersionFooter();
 
             IRenderable BuildCurrent(IProgress<int>? progress = null)
             {
@@ -151,8 +152,19 @@ public static class WatchCommand
 
             ClearScreen();
 
-            IRenderable WithUpdateNotice(IRenderable content) =>
-                updateNotice is null ? content : new Rows(content, updateNotice);
+            IRenderable WithUpdateNotice(IRenderable content)
+            {
+                var rows = new List<IRenderable> { content };
+                if (updateNotice is not null)
+                {
+                    rows.Add(updateNotice);
+                }
+                if (versionFooter is not null)
+                {
+                    rows.Add(versionFooter);
+                }
+                return rows.Count == 1 ? content : new Rows(rows);
+            }
 
             var current = view == "limits"
                 ? WithUpdateNotice(SpectreRenderer.BuildUsageLimits(lastSessionWindow!, lastWeekWindow!, effectiveSessionTokenLimit, effectiveWeekTokenLimit, recalibrationEnabled, effectiveSessionResetAt is not null))
