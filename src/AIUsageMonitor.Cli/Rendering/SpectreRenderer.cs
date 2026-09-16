@@ -9,7 +9,11 @@ namespace AIUsageMonitor.Cli.Rendering;
 /// </summary>
 public static class SpectreRenderer
 {
-    private static readonly Color[] HourlyBarColors = [Color.Blue, Color.SkyBlue1, Color.Green, Color.Yellow3];
+    /// <summary>
+    /// Minimum gap between token-used fraction and time-elapsed fraction (in either direction) before
+    /// a pace hint is shown. Keeps the hint from firing on noise when the two are roughly in step.
+    /// </summary>
+    private const double PaceGapThreshold = 0.15;
 
     /// <summary>
     /// A palette for per-row bar charts (e.g. daily tokens) where every consecutive pair - including
@@ -18,6 +22,8 @@ public static class SpectreRenderer
     /// </summary>
     private static readonly Color[] DailyBarColors =
         [Color.Blue, Color.Red, Color.Green, Color.Gold1, Color.Purple, Color.Cyan1];
+
+    private static readonly Color[] HourlyBarColors = [Color.Blue, Color.SkyBlue1, Color.Green, Color.Yellow3];
 
     /// <summary>
     /// Builds a renderable summary for a single day, including key stats and a token distribution chart by model.
@@ -323,12 +329,6 @@ public static class SpectreRenderer
     }
 
     /// <summary>
-    /// Creates a <see cref="TableColumn"/> with a centered header and the given data-cell alignment.
-    /// </summary>
-    private static TableColumn HeaderColumn(string header, Justify alignment) =>
-        new(new Markup(header).Centered()) { Alignment = alignment };
-
-    /// <summary>
     /// Renders the daily summary directly to the console.
     /// </summary>
     /// <param name="summary">The daily summary data to render.</param>
@@ -408,12 +408,6 @@ public static class SpectreRenderer
     private static string FormatNeutralProgressBar(double fraction) => FormatProgressBar(fraction, "grey");
 
     /// <summary>
-    /// Minimum gap between token-used fraction and time-elapsed fraction (in either direction) before
-    /// a pace hint is shown. Keeps the hint from firing on noise when the two are roughly in step.
-    /// </summary>
-    private const double PaceGapThreshold = 0.15;
-
-    /// <summary>
     /// Compares how far the session window has progressed in time versus in token usage, and returns a
     /// note suggesting the user speed up (usage lagging behind time) or slow down (usage running ahead
     /// of time). Returns <c>null</c> when the gap is within <see cref="PaceGapThreshold"/> (pace looks
@@ -477,6 +471,19 @@ public static class SpectreRenderer
         >= 1_000 => $"{tokens / 1_000.0:F1}K",
         _ => tokens.ToString("N0")
     };
+
+    /// <summary>
+    /// Creates a <see cref="TableColumn"/> with the given header text. Spectre.Console applies
+    /// <see cref="TableColumn.Alignment"/> to the header and its data cells alike (it positions
+    /// single-line content within the cell; a <see cref="Markup"/>'s own justification only
+    /// affects how wrapped lines align relative to each other), so header and data share the
+    /// same alignment here.
+    /// </summary>
+    private static TableColumn HeaderColumn(string header, Justify alignment) =>
+        new(new Markup(header))
+        {
+            Alignment = alignment
+        };
 
     /// <summary>
     /// Shortens a model name by removing the "claude-" prefix and trailing date suffix, if present.
