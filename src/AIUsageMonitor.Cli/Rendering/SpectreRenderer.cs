@@ -1,4 +1,5 @@
 using AIUsageMonitor.Core.Models;
+using AIUsageMonitor.UpdateCheck;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 
@@ -363,6 +364,18 @@ public static class SpectreRenderer
     /// </summary>
     /// <param name="stats">The session statistics data to render.</param>
     public static void RenderSessionStats(SessionStats stats) => AnsiConsole.Write(BuildSessionStats(stats));
+
+    /// <summary>
+    /// Builds a footer line naming the application and its running version, for display under
+    /// the continuously refreshed <c>watch</c> view only - a one-shot command's output is short
+    /// enough that the version line would just be noise under it.
+    /// </summary>
+    /// <returns>A grey markup line, or <see langword="null"/> if the version could not be determined.</returns>
+    public static IRenderable? BuildVersionFooter()
+    {
+        var version = AppVersion.GetCurrent();
+        return version is null ? null : new Markup($"[grey]aimon v{version} · https://github.com/coldhighsun/AIUsageMonitor[/]");
+    }
 
     /// <summary>
     /// Builds a titled table with a single row of centered stat values, one column per stat.
