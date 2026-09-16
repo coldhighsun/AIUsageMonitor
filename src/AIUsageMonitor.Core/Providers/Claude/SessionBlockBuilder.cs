@@ -55,16 +55,37 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
         var scanCandidates = sessionResetAt is { } elapsedResetAt
             ? messages.Where(m => m.Timestamp >= elapsedResetAt).ToList()
             : messages;
-        var (scanStart, scanLast) = ScanBlocks(scanCandidates);
+        var (scanStart, _) = ScanBlocks(scanCandidates);
 
-        if (scanStart is null || now - scanLast!.Value > SessionWindowDuration)
+        if (scanStart is null)
         {
             return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
         }
 
-        var estimatedResetsAt = scanStart.Value + SessionWindowDuration;
-        return Summarize(messages.Where(m => m.Timestamp >= scanStart.Value && m.Timestamp < estimatedResetsAt),
-            scanStart.Value, estimatedResetsAt, WindowConfidence.Estimated);
+        if (now >= scanStart.Value + SessionWindowDuration)
+        {
+            return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
+        }
+
+        var flooredStart = FloorToTenMinutes(scanStart.Value);
+        var estimatedResetsAt = flooredStart + SessionWindowDuration;
+        return Summarize(messages.Where(m => m.Timestamp >= flooredStart && m.Timestamp < estimatedResetsAt),
+            flooredStart, estimatedResetsAt, WindowConfidence.Estimated);
+    }
+
+    /// <summary>
+    /// Floors a timestamp down to the nearest 10-minute mark (seconds and sub-second components are
+    /// dropped), matching the granularity Claude's own UI uses for its reset times. Used only when
+    /// estimating a block's start locally, so the derived reset time lands on the same kind of round
+    /// clock value (e.g. :30, :40) a user would see if they had a confirmed anchor instead.
+    /// </summary>
+    /// <param name="timestamp">The timestamp to floor.</param>
+    /// <returns>The timestamp floored to the nearest 10-minute mark, preserving its offset.</returns>
+    private static DateTimeOffset FloorToTenMinutes(DateTimeOffset timestamp)
+    {
+        var flooredMinute = timestamp.Minute / 10 * 10;
+        return new DateTimeOffset(
+            timestamp.Year, timestamp.Month, timestamp.Day, timestamp.Hour, flooredMinute, 0, timestamp.Offset);
     }
 
     /// <summary>
