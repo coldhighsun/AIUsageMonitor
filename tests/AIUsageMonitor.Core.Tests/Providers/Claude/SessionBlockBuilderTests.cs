@@ -32,12 +32,16 @@ public class SessionBlockBuilderTests : IDisposable
            + "\"usage\":{\"input_tokens\":" + inputTokens + ",\"output_tokens\":" + outputTokens
            + ",\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}";
 
+    private static DateTimeOffset FloorToTenMinutes(DateTimeOffset timestamp)
+        => new(timestamp.Year, timestamp.Month, timestamp.Day, timestamp.Hour, timestamp.Minute / 10 * 10, 0, timestamp.Offset);
+
     [Fact]
     public void BuildCurrentSessionWindow_NoResetTime_SplitsOnIdleGapAndKeepsOnlyLatestBlock()
     {
         var now = DateTimeOffset.Now;
         var oldBlockStart = now.AddHours(-8);
         var newBlockStart = now.AddHours(-1);
+        var expectedStart = FloorToTenMinutes(newBlockStart);
 
         File.WriteAllLines(_tempFile,
         [
@@ -51,8 +55,32 @@ public class SessionBlockBuilderTests : IDisposable
         Assert.Equal(WindowConfidence.Estimated, result.Confidence);
         Assert.Equal(2, result.Messages);
         Assert.Equal(300, result.TotalTokens);
-        Assert.Equal(newBlockStart, result.WindowStart);
-        Assert.Equal(newBlockStart.AddHours(5), result.ResetsAt);
+        Assert.Equal(expectedStart, result.WindowStart);
+        Assert.Equal(expectedStart.AddHours(5), result.ResetsAt);
+    }
+
+    [Fact]
+    public void BuildCurrentSessionWindow_NoResetTimeAndBlockWindowElapsed_ReportsUnknownEvenWithRecentActivity()
+    {
+        // Regression test: a block's own 5-hour window can elapse even while its last message is
+        // still recent (e.g. a long-running block with an idle gap short of 5h). The window must
+        // flip to Unknown once its own estimated reset has passed, not keep showing a stale,
+        // already-elapsed "Estimated" reset time until 5h since the *last* message have gone by.
+        var now = DateTimeOffset.Now;
+        var blockStart = now.AddHours(-5).AddMinutes(-2);
+        var recentMessage = now.AddMinutes(-3);
+
+        File.WriteAllLines(_tempFile,
+        [
+            BuildLine(blockStart, "req-first"),
+            BuildLine(recentMessage, "req-recent"),
+        ]);
+
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], sessionResetAt: null);
+
+        Assert.Equal(WindowConfidence.Unknown, result.Confidence);
+        Assert.Null(result.WindowStart);
+        Assert.Null(result.ResetsAt);
     }
 
     [Fact]
@@ -118,10 +146,11 @@ public class SessionBlockBuilderTests : IDisposable
         ]);
 
         var result = _sut.BuildCurrentSessionWindow([_tempFile], elapsedResetAt);
+        var expectedStart = FloorToTenMinutes(newSessionMessage);
 
         Assert.Equal(WindowConfidence.Estimated, result.Confidence);
-        Assert.Equal(newSessionMessage, result.WindowStart);
-        Assert.Equal(newSessionMessage.AddHours(5), result.ResetsAt);
+        Assert.Equal(expectedStart, result.WindowStart);
+        Assert.Equal(expectedStart.AddHours(5), result.ResetsAt);
         Assert.Equal(1, result.Messages);
         Assert.Equal(150, result.TotalTokens);
     }
@@ -153,6 +182,23 @@ public class SessionBlockBuilderTests : IDisposable
 
         Assert.Equal(WindowConfidence.Unknown, result.Confidence);
         Assert.Null(result.ResetsAt);
+    }
+
+    [Fact]
+    public void BuildCurrentSessionWindow_NoResetTime_FloorsEstimatedWindowToTenMinuteMark()
+    {
+        var now = DateTimeOffset.Now;
+        var blockStart = now.AddHours(-1).AddMinutes(-7).AddSeconds(-13);
+
+        File.WriteAllLines(_tempFile, [BuildLine(blockStart, "req-1")]);
+
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], sessionResetAt: null);
+
+        Assert.Equal(WindowConfidence.Estimated, result.Confidence);
+        Assert.Equal(0, result.WindowStart!.Value.Minute % 10);
+        Assert.Equal(0, result.WindowStart!.Value.Second);
+        Assert.Equal(0, result.ResetsAt!.Value.Minute % 10);
+        Assert.Equal(0, result.ResetsAt!.Value.Second);
     }
 
     [Fact]
