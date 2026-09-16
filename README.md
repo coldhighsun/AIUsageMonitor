@@ -52,15 +52,17 @@ aimon <command>
 
 (or, from source: `dotnet run --project src/AIUsageMonitor.Cli -- <command>`)
 
+> 💡 **Start with `aimon watch`** — it's the recommended way to use this tool day-to-day: a live-updating view of your current session and weekly limits, so you always know how much headroom you have left.
+
 Commands:
 
+- `watch` — **(recommended)** live-updating view (`limits|today|week|models|sessions|hours`, default `limits`), refreshed on an interval
 - `today` — today's usage
 - `week` — current week's usage
 - `month` — current month's usage
 - `models` — usage broken down by model
 - `sessions` — per-session summaries
 - `hours` — usage broken down by hour of day
-- `watch` — live-updating view (`limits|today|week|models|sessions|hours`, default `limits`), refreshed on an interval
 - `export` — export raw analytics; supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
 
 `watch`'s default view, `limits`, approximates the "Current Session" (rolling 5-hour window) and "This Week" panels from Claude's own account UI, each with a **Time Progress** bar (how far the window has elapsed) and a **Token Progress** bar (how close it is to its budget). For the session window, a pace hint also appears below the table when token usage is running noticeably ahead of or behind elapsed time, suggesting you slow down or use more freely.
@@ -144,15 +146,17 @@ aimon <命令>
 
 (或从源码运行:`dotnet run --project src/AIUsageMonitor.Cli -- <命令>`)
 
+> 💡 **优先使用 `aimon watch`** —— 这是日常使用本工具的推荐方式:实时展示当前会话和每周额度的用量情况,让你随时掌握剩余空间。
+
 可用命令:
 
+- `watch` — **(推荐)** 实时刷新视图(`limits|today|week|models|sessions|hours`,默认为 `limits`),按指定间隔自动刷新
 - `today` — 今日用量
 - `week` — 本周用量
 - `month` — 本月用量
 - `models` — 按模型统计用量
 - `sessions` — 每个会话的用量汇总
 - `hours` — 按小时统计用量
-- `watch` — 实时刷新视图(`limits|today|week|models|sessions|hours`,默认为 `limits`),按指定间隔自动刷新
 - `export` — 导出原始分析数据;支持 `--format json|csv` 与 `--output <path>`(默认输出到标准输出,格式为 JSON)
 
 `watch` 的默认视图 `limits` 近似展示 Claude 官方账户界面中的 "Current Session"(滚动 5 小时窗口)和 "This Week" 面板,各自附带 **Time Progress**(窗口已过去的时间比例)与 **Token Progress**(用量占预算的比例)两条进度条。针对当前会话窗口,当 token 消耗进度明显快于或慢于时间进度时,表格下方还会出现一条节奏提示,建议你放慢或可以放心多用。
