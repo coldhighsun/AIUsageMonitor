@@ -70,12 +70,10 @@ internal static class LimitsAnchors
         var (weekResetAt, weekResetRaw) = PromptForWeekReset(saved.WeekResetAt);
         var sessionTokenLimit = PromptForTokenLimit(
             saved.SessionTokenLimit, sessionTokensSoFar,
-            "[yellow]Session usage percentage.[/] Enter the percentage Claude's usage display shows "
-                + "(Settings > Usage, or /usage in Claude Code), e.g. 32, or press Enter to keep the current value:");
+            "[yellow]Session usage %[/] (from /usage), e.g. 32, Enter to keep:");
         var weekTokenLimit = PromptForTokenLimit(
             saved.WeekTokenLimit, weekTokensSoFar,
-            "[yellow]Weekly usage percentage.[/] Enter the percentage Claude's usage display shows "
-                + "(Settings > Usage, or /usage in Claude Code), e.g. 32, or press Enter to keep the current value:");
+            "[yellow]Weekly usage %[/] (from /usage), e.g. 32, Enter to keep:");
 
         LimitsSettingsStore.Save(new(sessionResetAt, weekResetRaw, sessionTokenLimit, weekTokenLimit));
         return (sessionResetAt, weekResetAt, sessionTokenLimit, weekTokenLimit);
@@ -124,8 +122,7 @@ internal static class LimitsAnchors
 
         tokenLimit = PromptForTokenLimit(
             currentLimit: null, tokensSoFar,
-            $"[yellow]{promptLabel} usage percentage not set.[/] Enter the percentage Claude's usage display shows "
-                + "(Settings > Usage, or /usage in Claude Code), e.g. 32, or press Enter to skip the token progress bar:");
+            $"[yellow]{promptLabel} usage %[/] (from /usage), e.g. 32, Enter to skip:");
         return true;
     }
 
@@ -286,10 +283,8 @@ internal static class LimitsAnchors
     {
         var defaultText = currentValue is { } v ? v.ToString(SessionResetFormat) : "";
         var promptText = currentValue is not null
-            ? "[yellow]Current Session reset time.[/] Enter the reset time Claude shows " +
-              $"(local '{SessionResetFormat}', e.g. 18:30), or press Enter to keep the current value:"
-            : "[yellow]Current Session reset time not set.[/] Enter the reset time Claude shows " +
-              $"(local '{SessionResetFormat}', e.g. 18:30), or press Enter to use a local estimate:";
+            ? $"[yellow]Session reset time[/] (local '{SessionResetFormat}', e.g. 18:30), Enter to keep:"
+            : $"[yellow]Session reset time[/] (local '{SessionResetFormat}', e.g. 18:30), Enter to estimate:";
 
         while (true)
         {
@@ -360,12 +355,8 @@ internal static class LimitsAnchors
     {
         var defaultText = currentRaw ?? "";
         var promptText = currentRaw is not null
-            ? "[yellow]This Week reset time.[/] This is a fixed weekly schedule for your account " +
-              "(check Settings > Usage, or /usage in Claude Code) — enter it as 'Ddd HH:mm' " +
-              "(e.g. 'Mon 09:00'), or press Enter to keep the current value:"
-            : "[yellow]This Week reset time not set.[/] This is a fixed weekly schedule for your account " +
-              "(check Settings > Usage, or /usage in Claude Code), so it only needs to be entered once — " +
-              "format 'Ddd HH:mm' (e.g. 'Mon 09:00'), or press Enter to use a local estimate:";
+            ? "[yellow]Weekly reset time[/] ('Ddd HH:mm', e.g. 'Mon 09:00'), Enter to keep:"
+            : "[yellow]Weekly reset time[/] ('Ddd HH:mm', e.g. 'Mon 09:00'), Enter to estimate:";
 
         while (true)
         {
