@@ -65,7 +65,7 @@ Commands:
 - `hours` — usage broken down by hour of day
 - `export` — export raw analytics; supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
 
-`watch`'s default view, `limits`, approximates the "Current Session" (rolling 5-hour window) and "This Week" panels from Claude's own account UI, each with a **Time Progress** bar (how far the window has elapsed) and a **Token Progress** bar (how close it is to its budget). For the session window, a pace hint also appears below the table when token usage is running noticeably ahead of or behind elapsed time, suggesting you slow down or use more freely.
+`watch`'s default view, `limits`, approximates the "Current Session" (rolling 5-hour window) and "This Week" panels from Claude's own account UI, each with a **Time Progress** bar (how far the window has elapsed, colored green/orange when token usage is pacing notably behind/ahead of it) and a **Token Progress** bar (how close it is to its budget). For the session window, a pace hint also appears below the table when token usage is running noticeably ahead of or behind elapsed time, suggesting you slow down or use more freely.
 
 The real reset times and token limits live on your Anthropic account, not locally, so pin them once:
 
@@ -159,7 +159,7 @@ aimon <命令>
 - `hours` — 按小时统计用量
 - `export` — 导出原始分析数据;支持 `--format json|csv` 与 `--output <path>`(默认输出到标准输出,格式为 JSON)
 
-`watch` 的默认视图 `limits` 近似展示 Claude 官方账户界面中的 "Current Session"(滚动 5 小时窗口)和 "This Week" 面板,各自附带 **Time Progress**(窗口已过去的时间比例)与 **Token Progress**(用量占预算的比例)两条进度条。针对当前会话窗口,当 token 消耗进度明显快于或慢于时间进度时,表格下方还会出现一条节奏提示,建议你放慢或可以放心多用。
+`watch` 的默认视图 `limits` 近似展示 Claude 官方账户界面中的 "Current Session"(滚动 5 小时窗口)和 "This Week" 面板,各自附带 **Time Progress**(窗口已过去的时间比例,当 token 消耗明显落后/领先于时间进度时会分别显示绿色/橙色)与 **Token Progress**(用量占预算的比例)两条进度条。针对当前会话窗口,当 token 消耗进度明显快于或慢于时间进度时,表格下方还会出现一条节奏提示,建议你放慢或可以放心多用。
 
 真实的重置时间和 token 上限存储在 Anthropic 账号侧,本地无法读取,建议各录入一次:
 
