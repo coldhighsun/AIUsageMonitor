@@ -213,13 +213,15 @@ public static class SpectreRenderer
     /// <param name="sessionWindow">The current 5-hour session window data to render.</param>
     /// <param name="weekWindow">The current weekly window data to render.</param>
     /// <param name="sessionTokenLimit">
-    /// The account's session token limit, or <see langword="null"/> if not configured (in which case
-    /// the token-progress column is left blank for that row). Claude itself only ever shows a usage
-    /// *percentage*, never this limit, so it is derived once from a percentage the user read off
-    /// Claude's usage display - see <see cref="Commands.LimitsAnchors.ResolveTokenLimit"/> - and then used here
-    /// to track <paramref name="sessionWindow"/>'s live token count against it.
+    /// The account's session usage limit, expressed as an estimated USD cost budget, or
+    /// <see langword="null"/> if not configured (in which case the usage-progress column is left
+    /// blank for that row). Cost already weights tokens by model and type, which tracks Anthropic's
+    /// real usage gating far more closely than a flat token count. Claude itself only ever shows a
+    /// usage *percentage*, never this limit, so it is derived once from a percentage the user read
+    /// off Claude's usage display - see <see cref="Commands.LimitsAnchors.ResolveTokenLimit"/> - and
+    /// then used here to track <paramref name="sessionWindow"/>'s live estimated cost against it.
     /// </param>
-    /// <param name="weekTokenLimit">The account's weekly token limit, or <see langword="null"/> if not configured.</param>
+    /// <param name="weekTokenLimit">The account's weekly usage (cost) limit, or <see langword="null"/> if not configured.</param>
     /// <param name="recalibrationAvailable">
     /// Whether the "press r" hotkey hint applies, i.e. whether the caller is actually watching for
     /// it (it does nothing outside an interactive <c>watch</c> session).
@@ -233,7 +235,7 @@ public static class SpectreRenderer
     /// <returns>An <see cref="IRenderable"/> representing both usage windows.</returns>
     public static IRenderable BuildUsageLimits(
         UsageWindowSummary sessionWindow, UsageWindowSummary weekWindow,
-        long? sessionTokenLimit = null, long? weekTokenLimit = null, bool recalibrationAvailable = true,
+        decimal? sessionTokenLimit = null, decimal? weekTokenLimit = null, bool recalibrationAvailable = true,
         bool sessionResetConfigured = false)
     {
         var table = new Table().Border(TableBorder.Rounded).Title("[bold yellow]Usage Limits[/]").ShowRowSeparators();
@@ -244,7 +246,7 @@ public static class SpectreRenderer
         table.AddColumn(HeaderColumn("Resets At", Justify.Right).NoWrap());
         table.AddColumn(HeaderColumn("Time Left", Justify.Right).NoWrap());
         table.AddColumn(HeaderColumn("Time Progress", Justify.Center));
-        table.AddColumn(HeaderColumn("Token Progress", Justify.Center));
+        table.AddColumn(HeaderColumn("Usage Progress", Justify.Center));
 
         var sessionFractions = AddRow(table, "Session (5h)", sessionWindow, sessionTokenLimit);
         AddRow(table, "Week", weekWindow, weekTokenLimit);
@@ -287,14 +289,14 @@ public static class SpectreRenderer
 
         return notes.Count == 1 ? table : new Rows(notes);
 
-        static (double Time, double Token)? AddRow(Table table, string label, UsageWindowSummary window, long? tokenLimit)
+        static (double Time, double Token)? AddRow(Table table, string label, UsageWindowSummary window, decimal? costLimit)
         {
             var (tokens, messages, cost) = window.WindowStart is null
                 ? ("—", "—", "—")
                 : (FormatTokens(window.TotalTokens), $"{window.Messages:N0}", $"{window.EstimatedCost:C2}");
 
-            var tokenFraction = window.WindowStart is not null && tokenLimit is { } limit and > 0
-                ? window.TotalTokens / (double)limit
+            var tokenFraction = window.WindowStart is not null && costLimit is { } limit and > 0
+                ? (double)(window.EstimatedCost / limit)
                 : (double?)null;
             var tokenProgress = tokenFraction is { } tf ? FormatProgressBar(tf) : "—";
 

@@ -8,22 +8,25 @@ namespace AIUsageMonitor.Cli;
 /// </summary>
 /// <param name="SessionResetAt">The real reset time of the current session window, if configured.</param>
 /// <param name="WeekResetAt">The real weekly reset time, as originally typed (e.g. "Mon 09:00"), if configured.</param>
-/// <param name="SessionTokenLimit">
-/// The account's session (5h) token limit, in tokens. Claude itself only ever shows a usage
+/// <param name="SessionCostLimit">
+/// The account's session (5h) usage limit, expressed as an estimated USD cost budget rather than a
+/// raw token count - Anthropic's real usage gating weights tokens by model and type (an Opus token
+/// is far more "expensive" toward the limit than a Haiku one), which estimated cost already
+/// approximates far better than a flat token sum. Claude itself only ever shows a usage
 /// *percentage*, never the underlying limit, so this value is not typed in directly - it is derived
-/// once (<c>currentTokens / (enteredPercent / 100)</c>) from the percentage the user read off
-/// Claude's usage display and the token count this tool had counted for the window at that moment.
-/// Once derived it is persisted and reused so the token-progress bar can keep tracking live as
-/// tokens accrue, without asking the user again every refresh.
+/// once (<c>currentCost / (enteredPercent / 100)</c>) from the percentage the user read off
+/// Claude's usage display and the estimated cost this tool had computed for the window at that moment.
+/// Once derived it is persisted and reused so the usage-progress bar can keep tracking live as
+/// cost accrues, without asking the user again every refresh.
 /// </param>
-/// <param name="WeekTokenLimit">The account's weekly token limit, derived the same way as <see cref="SessionTokenLimit"/>.</param>
+/// <param name="WeekCostLimit">The account's weekly usage limit, derived the same way as <see cref="SessionCostLimit"/>.</param>
 public sealed record LimitsSettings(
     DateTimeOffset? SessionResetAt,
     string? WeekResetAt,
-    long? SessionTokenLimit = null,
-    long? WeekTokenLimit = null)
+    decimal? SessionCostLimit = null,
+    decimal? WeekCostLimit = null)
 {
-    /// <summary>An empty settings instance with no configured reset times or token limits.</summary>
+    /// <summary>An empty settings instance with no configured reset times or usage limits.</summary>
     public static readonly LimitsSettings Empty = new(null, null, null, null);
 }
 

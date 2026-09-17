@@ -52,8 +52,8 @@ public static class WatchCommand
 
             DateTimeOffset? effectiveSessionResetAt = null;
             (DayOfWeek Day, TimeSpan TimeOfDay)? effectiveWeekResetAt = null;
-            long? effectiveSessionTokenLimit = null;
-            long? effectiveWeekTokenLimit = null;
+            decimal? effectiveSessionTokenLimit = null;
+            decimal? effectiveWeekTokenLimit = null;
             UsageWindowSummary? lastSessionWindow = null;
             UsageWindowSummary? lastWeekWindow = null;
 
@@ -90,10 +90,10 @@ public static class WatchCommand
                 lastWeekWindow = dataService.GetWeekWindow(effectiveWeekResetAt);
 
                 if (!LimitsAnchors.ResolveTokenLimit(
-                        sessionTokenProgressArg, saved.SessionTokenLimit, lastSessionWindow.TotalTokens, "Session",
+                        sessionTokenProgressArg, saved.SessionCostLimit, lastSessionWindow.EstimatedCost, "Session",
                         out effectiveSessionTokenLimit, out error)
                     || !LimitsAnchors.ResolveTokenLimit(
-                        weekTokenProgressArg, saved.WeekTokenLimit, lastWeekWindow.TotalTokens, "Weekly",
+                        weekTokenProgressArg, saved.WeekCostLimit, lastWeekWindow.EstimatedCost, "Weekly",
                         out effectiveWeekTokenLimit, out error))
                 {
                     AnsiConsole.MarkupLine($"[red]{error}[/]");
@@ -102,8 +102,8 @@ public static class WatchCommand
 
                 LimitsSettingsStore.Save(saved with
                 {
-                    SessionTokenLimit = effectiveSessionTokenLimit,
-                    WeekTokenLimit = effectiveWeekTokenLimit
+                    SessionCostLimit = effectiveSessionTokenLimit,
+                    WeekCostLimit = effectiveWeekTokenLimit
                 });
             }
 
@@ -200,7 +200,7 @@ public static class WatchCommand
                 ClearScreen();
                 AnsiConsole.MarkupLine("[grey]Press Enter on any prompt to keep using a local estimate or the current value.[/]");
                 (effectiveSessionResetAt, effectiveWeekResetAt, effectiveSessionTokenLimit, effectiveWeekTokenLimit) = LimitsAnchors.PromptAndSaveBoth(
-                    lastSessionWindow?.TotalTokens ?? 0, lastWeekWindow?.TotalTokens ?? 0);
+                    lastSessionWindow?.EstimatedCost ?? 0, lastWeekWindow?.EstimatedCost ?? 0);
                 ClearScreen();
                 current = ProgressReporter.Run("Loading usage data...", BuildCurrent);
             }
