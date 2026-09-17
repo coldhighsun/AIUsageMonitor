@@ -41,11 +41,11 @@ internal static class LimitsAnchors
     {
         var sessionTokenProgressOption = new Option<double?>("--session-token-progress")
         {
-            Description = "Current session usage percentage as shown on Claude's own usage page (Settings > Usage, or /usage in Claude Code), e.g. 32 for '32%'. Combined with the tokens counted so far this session to derive a token budget, which is then used to track the token-progress bar live. Only used when --view limits."
+            Description = "Current session usage percentage as shown on Claude's own usage page (Settings > Usage, or /usage in Claude Code), e.g. 32 for '32%'. Combined with the estimated cost accrued so far this session to derive a usage budget, which is then used to track the usage-progress bar live. Only used when --view limits."
         };
         var weekTokenProgressOption = new Option<double?>("--week-token-progress")
         {
-            Description = "Current weekly usage percentage as shown on Claude's own usage page, e.g. 32 for '32%'. Combined with the tokens counted so far this week to derive a token budget. Only used when --view limits."
+            Description = "Current weekly usage percentage as shown on Claude's own usage page, e.g. 32 for '32%'. Combined with the estimated cost accrued so far this week to derive a usage budget. Only used when --view limits."
         };
         return (sessionTokenProgressOption, weekTokenProgressOption);
     }
@@ -57,47 +57,50 @@ internal static class LimitsAnchors
     /// same value is then returned as-is, without being re-validated against the 5-hour session
     /// window, so a stale (already elapsed) session reset can still be kept without an error round-trip.
     /// </summary>
-    /// <param name="sessionTokensSoFar">The tokens counted for the current session window so far, used to re-derive its token limit from a freshly entered percentage.</param>
-    /// <param name="weekTokensSoFar">The tokens counted for the current week window so far.</param>
-    /// <returns>The resolved session/weekly reset times and session/weekly token limits.</returns>
+    /// <param name="sessionCostSoFar">The estimated cost accrued for the current session window so far, used to re-derive its usage limit from a freshly entered percentage.</param>
+    /// <param name="weekCostSoFar">The estimated cost accrued for the current week window so far.</param>
+    /// <returns>The resolved session/weekly reset times and session/weekly usage (cost) limits.</returns>
     internal static (
         DateTimeOffset? SessionResetAt, (DayOfWeek Day, TimeSpan TimeOfDay)? WeekResetAt,
-        long? SessionTokenLimit, long? WeekTokenLimit) PromptAndSaveBoth(long sessionTokensSoFar, long weekTokensSoFar)
+        decimal? SessionCostLimit, decimal? WeekCostLimit) PromptAndSaveBoth(decimal sessionCostSoFar, decimal weekCostSoFar)
     {
         var saved = LimitsSettingsStore.Load();
 
         var sessionResetAt = PromptForSessionReset(saved.SessionResetAt);
         var (weekResetAt, weekResetRaw) = PromptForWeekReset(saved.WeekResetAt);
-        var sessionTokenLimit = PromptForTokenLimit(
-            saved.SessionTokenLimit, sessionTokensSoFar,
+        var sessionCostLimit = PromptForCostLimit(
+            saved.SessionCostLimit, sessionCostSoFar,
             "[yellow]Session usage %[/] (from /usage), e.g. 32, Enter to keep:");
-        var weekTokenLimit = PromptForTokenLimit(
-            saved.WeekTokenLimit, weekTokensSoFar,
+        var weekCostLimit = PromptForCostLimit(
+            saved.WeekCostLimit, weekCostSoFar,
             "[yellow]Weekly usage %[/] (from /usage), e.g. 32, Enter to keep:");
 
-        LimitsSettingsStore.Save(new(sessionResetAt, weekResetRaw, sessionTokenLimit, weekTokenLimit));
-        return (sessionResetAt, weekResetAt, sessionTokenLimit, weekTokenLimit);
+        LimitsSettingsStore.Save(new(sessionResetAt, weekResetRaw, sessionCostLimit, weekCostLimit));
+        return (sessionResetAt, weekResetAt, sessionCostLimit, weekCostLimit);
     }
 
     /// <summary>
-    /// Resolves the token limit for one usage window (session or week) from a usage *percentage* -
-    /// either an explicit CLI argument or (in an interactive terminal) a prompt - combined with the
-    /// tokens this tool has counted for that window so far: <c>limit = tokensSoFar / (percent / 100)</c>.
-    /// Claude itself never shows the underlying limit, only a percentage, so this is the only way to
-    /// derive one locally. The derived limit (not the percentage) is what gets persisted and returned,
-    /// so future refreshes can keep tracking the token-progress bar live against it without asking
-    /// again - until the user recalibrates (e.g. because the account's limit changed).
+    /// Resolves the usage (cost) limit for one usage window (session or week) from a usage
+    /// *percentage* - either an explicit CLI argument or (in an interactive terminal) a prompt -
+    /// combined with the estimated cost this tool has computed for that window so far:
+    /// <c>limit = costSoFar / (percent / 100)</c>. Cost already weights tokens by model and type
+    /// (an Opus token costs far more toward the real limit than a Haiku one), which tracks Anthropic's
+    /// actual usage gating much more closely than a flat token count would. Claude itself never shows
+    /// the underlying limit, only a percentage, so this is the only way to derive one locally. The
+    /// derived limit (not the percentage) is what gets persisted and returned, so future refreshes can
+    /// keep tracking the usage-progress bar live against it without asking again - until the user
+    /// recalibrates (e.g. because the account's limit changed).
     /// </summary>
     /// <param name="progressPercentArg">The raw <c>--session-token-progress</c>/<c>--week-token-progress</c> argument, if provided.</param>
-    /// <param name="savedLimit">The previously persisted token limit for this window, if any.</param>
-    /// <param name="tokensSoFar">The tokens this tool has counted for the window so far.</param>
+    /// <param name="savedLimit">The previously persisted cost limit for this window, if any.</param>
+    /// <param name="costSoFar">The estimated cost this tool has computed for the window so far.</param>
     /// <param name="promptLabel">A short label (e.g. "Session", "Weekly") used in the interactive prompt text.</param>
-    /// <param name="tokenLimit">The resolved token limit, or <see langword="null"/> if not configured.</param>
+    /// <param name="costLimit">The resolved cost limit, or <see langword="null"/> if not configured.</param>
     /// <param name="error">An error message describing why resolution failed, if it did.</param>
     /// <returns><see langword="true"/> if resolution succeeded; <see langword="false"/> if an explicit argument was invalid.</returns>
     internal static bool ResolveTokenLimit(
-        double? progressPercentArg, long? savedLimit, long tokensSoFar, string promptLabel,
-        out long? tokenLimit, out string? error)
+        double? progressPercentArg, decimal? savedLimit, decimal costSoFar, string promptLabel,
+        out decimal? costLimit, out string? error)
     {
         error = null;
 
@@ -105,23 +108,23 @@ internal static class LimitsAnchors
         {
             if (progressPercentArg <= 0)
             {
-                tokenLimit = null;
+                costLimit = null;
                 error = $"Invalid usage percentage '{progressPercentArg}'. Expected a percentage greater than 0.";
                 return false;
             }
 
-            tokenLimit = DeriveTokenLimit(tokensSoFar, progressPercentArg.Value);
+            costLimit = DeriveCostLimit(costSoFar, progressPercentArg.Value);
             return true;
         }
 
         if (savedLimit is not null || Console.IsInputRedirected)
         {
-            tokenLimit = savedLimit;
+            costLimit = savedLimit;
             return true;
         }
 
-        tokenLimit = PromptForTokenLimit(
-            currentLimit: null, tokensSoFar,
+        costLimit = PromptForCostLimit(
+            currentLimit: null, costSoFar,
             $"[yellow]{promptLabel} usage %[/] (from /usage), e.g. 32, Enter to skip:");
         return true;
     }
@@ -249,14 +252,14 @@ internal static class LimitsAnchors
     }
 
     /// <summary>
-    /// Derives a token limit from the tokens counted so far and the percentage of that limit they
-    /// represent, as read off Claude's own usage display. Never returns less than 1, since a 0 limit
-    /// would later be divided into and would also get persisted as <c>savedLimit</c>, silently
-    /// breaking the token-progress bar until the user recalibrates - most commonly when tokensSoFar
+    /// Derives a cost limit from the estimated cost accrued so far and the percentage of that limit
+    /// it represents, as read off Claude's own usage display. Never returns less than a cent, since a
+    /// 0 limit would later be divided into and would also get persisted as <c>savedLimit</c>, silently
+    /// breaking the usage-progress bar until the user recalibrates - most commonly when costSoFar
     /// is still 0 right after the window has reset.
     /// </summary>
-    private static long DeriveTokenLimit(long tokensSoFar, double progressPercent)
-        => Math.Max(1, (long)Math.Round(tokensSoFar / (progressPercent / 100)));
+    private static decimal DeriveCostLimit(decimal costSoFar, double progressPercent)
+        => Math.Max(0.01m, costSoFar / (decimal)(progressPercent / 100));
 
     /// <summary>
     /// Prompts for a string with <paramref name="defaultText"/> as the value Enter returns (so a
@@ -310,18 +313,18 @@ internal static class LimitsAnchors
     }
 
     /// <summary>
-    /// Prompts for a usage percentage and derives a token limit from it and <paramref name="tokensSoFar"/>.
+    /// Prompts for a usage percentage and derives a cost limit from it and <paramref name="costSoFar"/>.
     /// The prompt's default is the percentage <paramref name="currentLimit"/> currently implies (given
-    /// <paramref name="tokensSoFar"/>), so pressing Enter keeps the existing limit unchanged rather
+    /// <paramref name="costSoFar"/>), so pressing Enter keeps the existing limit unchanged rather
     /// than re-deriving it from a rounded default percentage.
     /// </summary>
-    /// <param name="currentLimit">The currently configured token limit, if any.</param>
-    /// <param name="tokensSoFar">The tokens counted for the window so far.</param>
+    /// <param name="currentLimit">The currently configured cost limit, if any.</param>
+    /// <param name="costSoFar">The estimated cost accrued for the window so far.</param>
     /// <param name="promptText">The prompt text to display.</param>
-    private static long? PromptForTokenLimit(long? currentLimit, long tokensSoFar, string promptText)
+    private static decimal? PromptForCostLimit(decimal? currentLimit, decimal costSoFar, string promptText)
     {
         var defaultText = currentLimit is { } limit and > 0
-            ? (tokensSoFar * 100.0 / limit).ToString("0.##", CultureInfo.InvariantCulture)
+            ? (costSoFar * 100 / limit).ToString("0.##", CultureInfo.InvariantCulture)
             : "";
 
         while (true)
@@ -340,7 +343,7 @@ internal static class LimitsAnchors
 
             if (double.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed > 0)
             {
-                return DeriveTokenLimit(tokensSoFar, parsed);
+                return DeriveCostLimit(costSoFar, parsed);
             }
 
             AnsiConsole.MarkupLine("[red]Invalid value. Expected a percentage greater than 0, e.g. 32.[/]");
