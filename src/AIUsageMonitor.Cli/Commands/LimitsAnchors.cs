@@ -212,6 +212,13 @@ internal static class LimitsAnchors
         var explicitlyProvided = sessionResetArg is not null || weekResetArg is not null;
 
         var effectiveSessionReset = sessionResetArg is not null ? sessionResetAt : saved.SessionResetAt;
+        if (effectiveSessionReset is not null && effectiveSessionReset <= DateTimeOffset.Now)
+        {
+            // A persisted reset time that has already elapsed no longer describes the current
+            // window - keep using it would show a reset time in the past. Fall through to the
+            // estimate/prompt below instead, exactly as documented.
+            effectiveSessionReset = null;
+        }
         var effectiveWeekResetRaw = weekResetArg ?? saved.WeekResetAt;
         var effectiveWeekReset = weekResetArg is not null
             ? weekResetAt
