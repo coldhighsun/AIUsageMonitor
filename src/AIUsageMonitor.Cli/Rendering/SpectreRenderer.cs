@@ -313,7 +313,7 @@ public static class SpectreRenderer
             var timeFraction = window.WindowStart is { } windowStart && resetsAt > windowStart
                 ? (now - windowStart).Ticks / (double)(resetsAt - windowStart).Ticks
                 : (double?)null;
-            var timeProgress = timeFraction is { } tp ? FormatNeutralProgressBar(tp) : "—";
+            var timeProgress = timeFraction is { } tp ? FormatPaceProgressBar(tp, tokenFraction) : "—";
 
             table.AddRow(
                 label,
@@ -415,12 +415,29 @@ public static class SpectreRenderer
     }
 
     /// <summary>
-    /// Renders the same fixed-width text progress bar as <see cref="FormatProgressBar(double)"/>, but
-    /// in a single neutral color regardless of how full it is. Used for the time-progress column,
-    /// where the fraction just reflects the clock ticking forward rather than a risk level - so
-    /// unlike token usage, it has no "bad" value worth flagging in color.
+    /// Renders the fixed-width text progress bar for the time-progress column, colored by how usage
+    /// pace compares to time pace rather than by how full the bar itself is - time ticking forward has
+    /// no "bad" value on its own, but how it compares to token usage does. Green when usage is pacing
+    /// behind time (headroom to spare), orange when usage is pacing ahead of time (running hot), grey
+    /// when the two are within <see cref="PaceGapThreshold"/> of each other or token usage isn't known.
     /// </summary>
-    private static string FormatNeutralProgressBar(double fraction) => FormatProgressBar(fraction, "grey");
+    private static string FormatPaceProgressBar(double timeFraction, double? tokenFraction)
+    {
+        if (tokenFraction is not { } tf)
+        {
+            return FormatProgressBar(timeFraction, "grey");
+        }
+
+        var gap = tf - timeFraction;
+        var color = gap switch
+        {
+            <= -PaceGapThreshold => "green",
+            >= PaceGapThreshold => "orange3",
+            _ => "grey"
+        };
+
+        return FormatProgressBar(timeFraction, color);
+    }
 
     /// <summary>
     /// Compares how far the session window has progressed in time versus in token usage, and returns a
