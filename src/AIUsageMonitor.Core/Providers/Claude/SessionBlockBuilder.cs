@@ -77,15 +77,20 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
     /// Floors a timestamp down to the nearest 10-minute mark (seconds and sub-second components are
     /// dropped), matching the granularity Claude's own UI uses for its reset times. Used only when
     /// estimating a block's start locally, so the derived reset time lands on the same kind of round
-    /// clock value (e.g. :30, :40) a user would see if they had a confirmed anchor instead.
+    /// clock value (e.g. :30, :40) a user would see if they had a confirmed anchor instead. Session
+    /// transcript timestamps are recorded in UTC (offset zero), but the reset time this produces is
+    /// compared and displayed against the user's local clock, so the timestamp is converted to local
+    /// time before flooring - otherwise the floored (and later +5h) value would land on the wrong
+    /// clock hour whenever local time isn't UTC.
     /// </summary>
     /// <param name="timestamp">The timestamp to floor.</param>
-    /// <returns>The timestamp floored to the nearest 10-minute mark, preserving its offset.</returns>
+    /// <returns>The timestamp floored to the nearest 10-minute mark, in local time.</returns>
     private static DateTimeOffset FloorToTenMinutes(DateTimeOffset timestamp)
     {
-        var flooredMinute = timestamp.Minute / 10 * 10;
+        var local = timestamp.ToLocalTime();
+        var flooredMinute = local.Minute / 10 * 10;
         return new DateTimeOffset(
-            timestamp.Year, timestamp.Month, timestamp.Day, timestamp.Hour, flooredMinute, 0, timestamp.Offset);
+            local.Year, local.Month, local.Day, local.Hour, flooredMinute, 0, local.Offset);
     }
 
     /// <summary>

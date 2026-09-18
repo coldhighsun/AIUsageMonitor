@@ -93,6 +93,10 @@ dotnet run --project src/AIUsageMonitor.WPF
 
 Polls usage data once per minute and renders daily/model/hourly charts.
 
+### Limitations
+
+⚠️ **Multi-device usage**: If you use Claude Code on multiple devices within a single billing period (session window or weekly cycle), the reported statistics and progress bars may be inaccurate. Since this tool reads only local data files (`stats-cache.json`, `history.jsonl`, and session transcripts from `~/.claude`), it cannot see usage from other devices. To ensure accurate tracking across devices, manually configure `--session-token-progress` and `--week-token-progress` with the percentages shown on your Anthropic account's official UI, so the tool can infer the true budget limits.
+
 ### How it works
 
 Provider-specific parsing (`Providers/<Name>/`, e.g. `Providers/Claude/`) feeds `Analytics/UsageAnalyzer`, exposed through `Services/DataService` to both the CLI and the WPF app. See [CLAUDE.md](CLAUDE.md) for the full data-flow breakdown.
@@ -186,6 +190,10 @@ dotnet run --project src/AIUsageMonitor.WPF
 ```
 
 每分钟轮询一次用量数据,并渲染按天/按模型/按小时的图表。
+
+### 已知限制
+
+⚠️ **多设备使用**: 如果你在同一个计费周期内(会话窗口或周期)在多台设备上使用 Claude Code,本工具的统计数据和进度条可能不准确。因为本工具只能读取本地数据文件(`~/.claude` 目录下的 `stats-cache.json`、`history.jsonl` 和会话记录),无法看到其他设备上的用量。为了确保跨设备的计数准确,建议手动配置 `--session-token-progress` 和 `--week-token-progress`,填入 Anthropic 官方账户界面显示的用量百分比,这样工具就能推算出真实的 token 预算上限。
 
 ### 工作原理
 
