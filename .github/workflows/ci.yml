@@ -29,10 +29,15 @@ jobs:
           dotnet test AIUsageMonitor.slnx --no-build --configuration Release
           -- --coverage --coverage-output-format cobertura --results-directory ./coverage
 
+      - name: Merge coverage reports
+        run: |
+          dotnet tool install --global dotnet-coverage
+          dotnet-coverage merge "./coverage/*.cobertura.xml" --output ./coverage/merged.cobertura.xml --output-format cobertura
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          directory: ./coverage
+          files: ./coverage/merged.cobertura.xml
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
