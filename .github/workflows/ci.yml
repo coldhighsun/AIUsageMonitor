@@ -35,7 +35,7 @@ jobs:
           dotnet-coverage merge "./coverage/*.cobertura.xml" --output ./coverage/merged.cobertura.xml --output-format cobertura
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage/merged.cobertura.xml
           disable_search: true
