@@ -1,5 +1,5 @@
+using AIUsageMonitor.Cli;
 using AIUsageMonitor.Core.Models;
-using AIUsageMonitor.UpdateCheck;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 
@@ -375,7 +375,7 @@ public static class SpectreRenderer
     /// <returns>A grey markup line, or <see langword="null"/> if the version could not be determined.</returns>
     public static IRenderable? BuildVersionFooter()
     {
-        var version = AppVersion.GetCurrentDisplayString();
+        var version = UpdateChecking.GetCurrentVersionDisplayString();
         return version is null ? null : new Markup($"[grey]aimon v{version} · https://github.com/coldhighsun/AIUsageMonitor[/]");
     }
 

@@ -1,4 +1,4 @@
-using AIUsageMonitor.UpdateCheck;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 
 namespace AIUsageMonitor.Cli;
@@ -12,10 +12,10 @@ public static class UpdateNotice
     /// <summary>
     /// Checks for an update and, if one is available, prints a notice.
     /// </summary>
-    /// <param name="updateChecker">The update checker to query.</param>
-    public static async Task PrintIfAvailableAsync(IUpdateChecker updateChecker)
+    /// <param name="logger">An optional logger used to record a failed update check.</param>
+    public static async Task PrintIfAvailableAsync(ILogger? logger = null)
     {
-        var result = await updateChecker.CheckForUpdateAsync();
+        var result = await UpdateChecking.CheckForUpdateAsync(logger: logger);
         if (result.IsUpdateAvailable)
         {
             // Written to stderr, not stdout, so it never mixes into piped command output (e.g.
@@ -31,7 +31,7 @@ public static class UpdateNotice
     /// </summary>
     /// <param name="result">The update check result to render.</param>
     /// <returns>A markup line if an update is available; otherwise <see langword="null"/>.</returns>
-    public static Spectre.Console.Rendering.IRenderable? BuildRenderable(UpdateCheckResult? result)
+    public static Spectre.Console.Rendering.IRenderable? BuildRenderable(UpdateCheckOutcome? result)
     {
         return result is { IsUpdateAvailable: true }
             ? new Markup($"[yellow]A new version ({result.LatestVersion}) of aimon is available. Download it at {result.ReleaseUrl}[/]")
