@@ -1,7 +1,7 @@
 using AIUsageMonitor.Cli.Rendering;
 using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Services;
-using AIUsageMonitor.UpdateCheck;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using System.CommandLine;
@@ -17,9 +17,9 @@ public static class WatchCommand
     /// Creates the "watch" command with its options and action.
     /// </summary>
     /// <param name="dataService">The data service used to retrieve usage data for the specified view.</param>
-    /// <param name="updateChecker">The update checker used to show a persistent notice when a newer version is available.</param>
+    /// <param name="logger">An optional logger used to record a failed update check.</param>
     /// <returns>A configured <see cref="Command"/> instance for continuously refreshing a usage view.</returns>
-    public static Command Create(DataService dataService, IUpdateChecker updateChecker)
+    public static Command Create(DataService dataService, ILogger? logger = null)
     {
         var command = new Command("watch", "Continuously refresh a usage view at a fixed interval");
         var viewOption = new Option<string>("--view")
@@ -111,7 +111,7 @@ public static class WatchCommand
 
             // Checked once, up front - watch is a long-running loop, so the notice needs to be
             // visible while it runs rather than only after it exits.
-            var updateInfo = await updateChecker.CheckForUpdateAsync(ct);
+            var updateInfo = await UpdateChecking.CheckForUpdateAsync(ct, logger);
             var updateNotice = UpdateNotice.BuildRenderable(updateInfo);
             var versionFooter = SpectreRenderer.BuildVersionFooter();
 

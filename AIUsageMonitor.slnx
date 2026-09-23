@@ -19,11 +19,9 @@
   <Folder Name="/src/">
     <Project Path="src/AIUsageMonitor.Cli/AIUsageMonitor.Cli.csproj" />
     <Project Path="src/AIUsageMonitor.Core/AIUsageMonitor.Core.csproj" />
-    <Project Path="src/AIUsageMonitor.UpdateCheck/AIUsageMonitor.UpdateCheck.csproj" />
     <Project Path="src/AIUsageMonitor.WPF/AIUsageMonitor.WPF.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AIUsageMonitor.Core.Tests/AIUsageMonitor.Core.Tests.csproj" />
-    <Project Path="tests/AIUsageMonitor.UpdateCheck.Tests/AIUsageMonitor.UpdateCheck.Tests.csproj" />
   </Folder>
 </Solution>

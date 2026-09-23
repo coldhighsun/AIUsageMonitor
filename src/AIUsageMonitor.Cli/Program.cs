@@ -2,7 +2,6 @@ using System.CommandLine;
 using AIUsageMonitor.Cli;
 using AIUsageMonitor.Cli.Commands;
 using AIUsageMonitor.Core.Services;
-using AIUsageMonitor.UpdateCheck;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,12 +11,13 @@ try
 {
     var builder = Host.CreateApplicationBuilder(args);
     builder.Logging.ClearProviders();
+    builder.Logging.SetMinimumLevel(LogLevel.Warning);
+    builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Warning);
     builder.Services.AddClaudeUsageCore();
-    builder.Services.AddHttpClient<IUpdateChecker, UpdateChecker>();
     var host = builder.Build();
 
     var dataService = host.Services.GetRequiredService<DataService>();
-    var updateChecker = host.Services.GetRequiredService<IUpdateChecker>();
+    var updateCheckLogger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger<Program>();
 
     var rootCommand = new RootCommand("aimon - AI Usage Monitor");
 
@@ -28,7 +28,7 @@ try
     rootCommand.Subcommands.Add(SessionsCommand.Create(dataService));
     rootCommand.Subcommands.Add(HoursCommand.Create(dataService));
     rootCommand.Subcommands.Add(ExportCommand.Create(dataService));
-    var watchCommand = WatchCommand.Create(dataService, updateChecker);
+    var watchCommand = WatchCommand.Create(dataService, updateCheckLogger);
     rootCommand.Subcommands.Add(watchCommand);
 
     var parseResult = rootCommand.Parse(args);
@@ -46,7 +46,7 @@ try
     // its own output, so the check never delays the command's actual result.
     if (!isWatch)
     {
-        await UpdateNotice.PrintIfAvailableAsync(updateChecker);
+        await UpdateNotice.PrintIfAvailableAsync(updateCheckLogger);
     }
 
     return exitCode;
