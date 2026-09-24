@@ -9,6 +9,15 @@ using Spectre.Console;
 
 try
 {
+    try
+    {
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+    }
+    catch (IOException)
+    {
+        // Output is redirected (e.g. piped to a file); the encoding can't be changed there.
+    }
+
     var builder = Host.CreateApplicationBuilder(args);
     builder.Logging.ClearProviders();
     builder.Logging.SetMinimumLevel(LogLevel.Warning);
