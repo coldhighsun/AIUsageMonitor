@@ -59,14 +59,16 @@ internal static class LimitsAnchors
     /// </summary>
     /// <param name="sessionCostSoFar">The estimated cost accrued for the current session window so far, used to re-derive its usage limit from a freshly entered percentage.</param>
     /// <param name="weekCostSoFar">The estimated cost accrued for the current week window so far.</param>
+    /// <param name="currentSessionResetAt">The confirmed, still-upcoming session reset currently in effect, offered as the prompt's default. Never pass an auto-computed estimate, or pressing Enter would pin it as a confirmed anchor.</param>
     /// <returns>The resolved session/weekly reset times and session/weekly usage (cost) limits.</returns>
     internal static (
         DateTimeOffset? SessionResetAt, (DayOfWeek Day, TimeSpan TimeOfDay)? WeekResetAt,
-        decimal? SessionCostLimit, decimal? WeekCostLimit) PromptAndSaveBoth(decimal sessionCostSoFar, decimal weekCostSoFar)
+        decimal? SessionCostLimit, decimal? WeekCostLimit) PromptAndSaveBoth(
+        decimal sessionCostSoFar, decimal weekCostSoFar, DateTimeOffset? currentSessionResetAt)
     {
         var saved = LimitsSettingsStore.Load();
 
-        var sessionResetAt = PromptForSessionReset(saved.SessionResetAt);
+        var sessionResetAt = PromptForSessionReset(currentSessionResetAt ?? saved.SessionResetAt);
         var (weekResetAt, weekResetRaw) = PromptForWeekReset(saved.WeekResetAt);
         var sessionCostLimit = PromptForCostLimit(
             saved.SessionCostLimit, sessionCostSoFar,
@@ -228,13 +230,9 @@ internal static class LimitsAnchors
 
         // A persisted reset time that has already elapsed is deliberately not prompted for again:
         // it simply stops applying, the window falls back to an estimate or to "unknown", and the
-        // limits view tells the user how to recalibrate without blocking startup.
-        if (effectiveSessionReset is null && !Console.IsInputRedirected)
-        {
-            effectiveSessionReset = PromptForSessionReset(currentValue: null);
-            promptedForAnything = true;
-        }
-
+        // limits view tells the user how to recalibrate without blocking startup. The session reset
+        // is likewise never prompted for at startup: without a value it is auto-computed, and can
+        // still be set via the 'r' recalibration hotkey.
         if (effectiveWeekReset is null && !Console.IsInputRedirected)
         {
             (effectiveWeekReset, effectiveWeekResetRaw) = PromptForWeekReset(currentRaw: null);
