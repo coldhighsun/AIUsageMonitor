@@ -207,7 +207,7 @@ public static class SpectreRenderer
     /// <summary>
     /// Builds a single renderable table summarizing both rate-limit-style usage windows
     /// (the current session and the weekly window), one row per window, followed by a note
-    /// explaining any row that is locally estimated ('~') or could not be determined ('?'),
+    /// explaining any row that is locally estimated or could not be determined ('?'),
     /// and (while the recalibration hotkey is available) a standing reminder of it.
     /// </summary>
     /// <param name="sessionWindow">The current 5-hour session window data to render.</param>
@@ -263,14 +263,14 @@ public static class SpectreRenderer
             notes.Add(new Markup(sessionResetConfigured
                 ? "[grey]⏳ Waiting for a new session to start — the previous 5h window has reset and no "
                   + "activity has been seen yet on this machine.[/]"
-                : "[grey]? Session window unknown — no local activity in the last 5 hours. Your account may be idle, or "
-                  + "in use on another device this machine can't see.[/]"));
+                : "[grey]⏳ Waiting for a new session to start — no local activity in the last 5 hours. Your account may "
+                  + "also be in use on another device this machine can't see.[/]"));
         }
 
         if (sessionWindow.Confidence is WindowConfidence.Estimated)
         {
             notes.Add(new Markup(
-                "[grey]~ Session estimated from this machine's activity only — the real window may have started "
+                "[grey]Session estimated from this machine's activity only — the real window may have started "
                 + "earlier on another device, so the actual reset can come sooner.[/]"));
         }
 
@@ -308,7 +308,6 @@ public static class SpectreRenderer
 
             var now = DateTimeOffset.Now;
             var remaining = resetsAt > now ? resetsAt - now : TimeSpan.Zero;
-            var marker = window.Confidence is WindowConfidence.Estimated ? "~" : "";
 
             var timeFraction = window.WindowStart is { } windowStart && resetsAt > windowStart
                 ? (now - windowStart).Ticks / (double)(resetsAt - windowStart).Ticks
@@ -320,7 +319,7 @@ public static class SpectreRenderer
                 tokens,
                 messages,
                 cost,
-                $"{marker}{resetsAt:MM-dd HH:mm}",
+                $"{resetsAt:MM-dd HH:mm}",
                 FormatDuration(remaining),
                 timeProgress,
                 tokenProgress);
