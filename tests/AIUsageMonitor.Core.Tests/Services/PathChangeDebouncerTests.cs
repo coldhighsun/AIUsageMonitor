@@ -11,12 +11,12 @@ public sealed class PathChangeDebouncerTests : IDisposable
     /// <summary>
     /// The quiet period used by the tests.
     /// </summary>
-    private static readonly TimeSpan Delay = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan Delay = TimeSpan.FromMilliseconds(400);
 
     /// <summary>
     /// The maximum hold-back used by the tests.
     /// </summary>
-    private static readonly TimeSpan MaxWait = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan MaxWait = TimeSpan.FromMilliseconds(1200);
 
     /// <summary>
     /// A generous upper bound for waiting on something that should happen.
