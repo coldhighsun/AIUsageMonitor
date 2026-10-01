@@ -22,6 +22,7 @@
     <Project Path="src/AIUsageMonitor.WPF/AIUsageMonitor.WPF.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/AIUsageMonitor.Cli.Tests/AIUsageMonitor.Cli.Tests.csproj" />
     <Project Path="tests/AIUsageMonitor.Core.Tests/AIUsageMonitor.Core.Tests.csproj" />
   </Folder>
 </Solution>
