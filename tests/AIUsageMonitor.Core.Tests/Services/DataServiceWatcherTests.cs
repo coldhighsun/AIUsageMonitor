@@ -33,6 +33,11 @@ public sealed class DataServiceWatcherTests : IDisposable
     private readonly ClaudeDataLocator _locator;
 
     /// <summary>
+    /// The transcript cache shared with the service, whose remembered write times the watcher keeps current.
+    /// </summary>
+    private readonly SessionFileCache _sessionFileCache;
+
+    /// <summary>
     /// The service under test, which owns the watcher.
     /// </summary>
     private readonly DataService _sut;
@@ -46,21 +51,21 @@ public sealed class DataServiceWatcherTests : IDisposable
         Directory.CreateDirectory(_projectDir);
 
         _locator = new ClaudeDataLocator(_claudeDir);
-        var sessionFileCache = new SessionFileCache(
+        _sessionFileCache = new SessionFileCache(
             new SessionParser(NullLogger<SessionParser>.Instance), NullLogger<SessionFileCache>.Instance);
         var costCalculator = new CostCalculator();
         var tracker = new SessionActivityTracker(_locator);
         var provider = new ClaudeUsageProvider(
             _locator,
             new StatsCacheParser(),
-            new StatsCacheBuilder(sessionFileCache),
-            new RecentActivityBuilder(sessionFileCache, costCalculator),
-            new HourlyActivityBuilder(sessionFileCache),
-            new SessionBlockBuilder(sessionFileCache, costCalculator),
+            new StatsCacheBuilder(_sessionFileCache),
+            new RecentActivityBuilder(_sessionFileCache, costCalculator),
+            new HourlyActivityBuilder(_sessionFileCache),
+            new SessionBlockBuilder(_sessionFileCache, costCalculator),
             tracker,
             NullLogger<ClaudeUsageProvider>.Instance);
 
-        _sut = new(provider, new UsageAnalyzer(costCalculator), sessionFileCache, tracker, NullLogger<DataService>.Instance);
+        _sut = new(provider, new UsageAnalyzer(costCalculator), _sessionFileCache, tracker, NullLogger<DataService>.Instance);
     }
 
     /// <summary>
@@ -154,6 +159,28 @@ public sealed class DataServiceWatcherTests : IDisposable
 
         Assert.True(await EventuallyAsync(files =>
             files.Count == 1 && string.Equals(files[0], movedPath, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// Verifies that a transcript that had been idle for days is picked up by the windowed file filter as soon as the
+    /// watcher reports it being written, even though write times are remembered between calls.
+    /// </summary>
+    [Fact]
+    public async Task WriteToIdleFile_MakesItVisibleToWindowedFileFilter()
+    {
+        // Prepared outside the watched tree and moved in, so the watcher first sees it with its old write time.
+        var staging = Path.Combine(_claudeDir, "idle-staging.jsonl");
+        File.WriteAllText(staging, "{}\n");
+        File.SetLastWriteTimeUtc(staging, DateTime.UtcNow.AddDays(-30));
+        var path = Path.Combine(_projectDir, "idle.jsonl");
+        File.Move(staging, path);
+        Assert.True(await EventuallyAsync(files => files.Count == 1));
+        var since = DateTimeOffset.UtcNow.AddDays(-1);
+        Assert.Empty(_sessionFileCache.GetFilesModifiedSince(_locator.GetSessionFiles(), since));
+
+        File.AppendAllText(path, "{}\n");
+
+        Assert.True(await EventuallyAsync(files => _sessionFileCache.GetFilesModifiedSince(files, since).Count == 1));
     }
 
     /// <summary>
