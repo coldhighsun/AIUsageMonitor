@@ -13,9 +13,19 @@ namespace AIUsageMonitor.Core.Providers.Claude;
 /// <param name="sessionParser">The <see cref="SessionParser"/> used to parse session transcript files.</param>
 /// <param name="logger">The logger instance used for logging warnings when a transcript file cannot be read.</param>
 /// <param name="diskCache">The persistent cache shared across processes, or <see langword="null"/> to cache in memory only.</param>
+/// <param name="timeProvider">The clock used to age remembered write times; defaults to the system clock.</param>
 public sealed class SessionFileCache(
-    SessionParser sessionParser, ILogger<SessionFileCache> logger, SessionRowDiskCache? diskCache = null)
+    SessionParser sessionParser,
+    ILogger<SessionFileCache> logger,
+    SessionRowDiskCache? diskCache = null,
+    TimeProvider? timeProvider = null)
 {
+    /// <summary>
+    /// How long remembered last-write times are trusted before being re-read from disk, as a safety net against
+    /// lost file-system notifications.
+    /// </summary>
+    public static readonly TimeSpan WriteTimeMaxAge = TimeSpan.FromMinutes(1);
+
     /// <summary>
     /// The shortest interval at which a continuously changing file is written back to the disk cache by one process.
     /// </summary>
@@ -36,6 +46,27 @@ public sealed class SessionFileCache(
     /// used to avoid rewriting the entry of a file that is being appended to on every refresh.
     /// </summary>
     private readonly ConcurrentDictionary<string, long> _lastDiskWriteTicks = new();
+
+    /// <summary>
+    /// The clock used to age remembered write times.
+    /// </summary>
+    private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
+
+    /// <summary>
+    /// The remembered last-write time (UTC ticks) of each transcript, used by <see cref="GetFilesModifiedSince"/>
+    /// while <see cref="_trackWriteTimes"/> is on.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, long> _writeTicks = new(ClaudeDataLocator.PathComparer);
+
+    /// <summary>
+    /// Whether every write is reported to <see cref="NoteWritten"/>, which is what makes remembering write times safe.
+    /// </summary>
+    private volatile bool _trackWriteTimes;
+
+    /// <summary>
+    /// When <see cref="_writeTicks"/> was last emptied (or tracking was enabled).
+    /// </summary>
+    private DateTimeOffset _writeTicksBuiltAt;
 
     /// <summary>
     /// One lock object per file, serializing concurrent refreshes of the same transcript.
@@ -59,24 +90,102 @@ public sealed class SessionFileCache(
     /// <paramref name="since"/> (allowing for a small clock-skew tolerance) cannot contain any such message and
     /// need not be opened at all.
     /// </summary>
+    /// <remarks>
+    /// With <see cref="EnableWriteTimeTracking"/> on, last-write times are remembered between calls (and kept
+    /// current by <see cref="NoteWritten"/>) instead of being read from the disk for every file on every call.
+    /// </remarks>
     /// <param name="filePaths">The candidate session transcript files.</param>
     /// <param name="since">The earliest message timestamp the caller is interested in.</param>
     /// <returns>The subset of <paramref name="filePaths"/> that could hold messages at or after <paramref name="since"/>.</returns>
     public IReadOnlyList<string> GetFilesModifiedSince(IReadOnlyList<string> filePaths, DateTimeOffset since)
     {
-        var threshold = (since - ModifiedTimeSlack).UtcDateTime;
+        var thresholdTicks = (since - ModifiedTimeSlack).UtcDateTime.Ticks;
         var result = new List<string>(filePaths.Count);
+        var tracking = _trackWriteTimes && ResetStaleWriteTimes();
 
         foreach (var file in filePaths)
         {
-            // A missing file reports the 1601 sentinel here, so it is filtered out like any stale file.
-            if (File.GetLastWriteTimeUtc(file) >= threshold)
+            long ticks;
+            if (!tracking)
+            {
+                ticks = File.GetLastWriteTimeUtc(file).Ticks;
+            }
+            else if (!_writeTicks.TryGetValue(file, out ticks))
+            {
+                ticks = File.GetLastWriteTimeUtc(file).Ticks;
+                RememberWriteTime(file, ticks);
+            }
+
+            // A missing file reports the 1601 sentinel, so it is filtered out like any stale file.
+            if (ticks >= thresholdTicks)
             {
                 result.Add(file);
             }
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Starts remembering each file's last-write time between <see cref="GetFilesModifiedSince"/> calls. Call it only
+    /// once every write is also reported to <see cref="NoteWritten"/> (and lost notifications to
+    /// <see cref="ForgetWriteTimes"/>), after the file-system watcher is already raising events: a remembered time is
+    /// otherwise never refreshed, and a file written since would wrongly be treated as unchanged.
+    /// </summary>
+    public void EnableWriteTimeTracking()
+    {
+        _writeTicksBuiltAt = _clock.GetUtcNow();
+        _trackWriteTimes = true;
+    }
+
+    /// <summary>
+    /// Records that a transcript was written, so a file that had been idle is no longer skipped by
+    /// <see cref="GetFilesModifiedSince"/>.
+    /// </summary>
+    /// <param name="filePath">The transcript that was written.</param>
+    /// <param name="lastWriteUtc">The file's last-write time, as read when the event was handled.</param>
+    public void NoteWritten(string filePath, DateTime lastWriteUtc)
+    {
+        if (_trackWriteTimes)
+        {
+            RememberWriteTime(filePath, lastWriteUtc.Ticks);
+        }
+    }
+
+    /// <summary>
+    /// Drops all remembered last-write times so the next <see cref="GetFilesModifiedSince"/> reads them from disk
+    /// again. Use it when file-system notifications may have been lost.
+    /// </summary>
+    public void ForgetWriteTimes()
+    {
+        _writeTicks.Clear();
+        _writeTicksBuiltAt = _clock.GetUtcNow();
+    }
+
+    /// <summary>
+    /// Stores a last-write time, never moving a remembered time backwards: a stat that raced with a write event
+    /// may be older than what the event already recorded.
+    /// </summary>
+    /// <param name="filePath">The transcript.</param>
+    /// <param name="ticks">The last-write time, as UTC ticks.</param>
+    private void RememberWriteTime(string filePath, long ticks)
+    {
+        _writeTicks.AddOrUpdate(filePath, ticks, (_, known) => Math.Max(known, ticks));
+    }
+
+    /// <summary>
+    /// Forgets remembered write times once they are older than <see cref="WriteTimeMaxAge"/>, bounding how long a
+    /// lost notification can leave a stale time behind.
+    /// </summary>
+    /// <returns>Always <see langword="true"/>, so it can be chained in a condition.</returns>
+    private bool ResetStaleWriteTimes()
+    {
+        if (_clock.GetUtcNow() - _writeTicksBuiltAt >= WriteTimeMaxAge)
+        {
+            ForgetWriteTimes();
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -139,6 +248,14 @@ public sealed class SessionFileCache(
             }
         }
 
+        foreach (var key in _writeTicks.Keys)
+        {
+            if (!currentSet.Contains(key))
+            {
+                _writeTicks.TryRemove(key, out _);
+            }
+        }
+
         diskCache?.Prune(currentFiles);
     }
 
@@ -151,6 +268,7 @@ public sealed class SessionFileCache(
         _cache.TryRemove(filePath, out _);
         _lastDiskWriteTicks.TryRemove(filePath, out _);
         _gates.TryRemove(filePath, out _);
+        _writeTicks.TryRemove(filePath, out _);
         diskCache?.Remove(filePath);
     }
 

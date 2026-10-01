@@ -154,6 +154,7 @@ public sealed class DataService : IDisposable
 
                 // Only now that events are flowing may the file listing be cached: any later change reaches it.
                 claudeProvider.Locator.EnableChangeTracking();
+                _sessionFileCache.EnableWriteTimeTracking();
             }
         }
     }
@@ -301,7 +302,9 @@ public sealed class DataService : IDisposable
                     (_provider as ClaudeUsageProvider)?.Locator.NotifyFileCreated(e.FullPath);
                 }
 
-                _sessionActivityTracker.Observe(File.GetLastWriteTimeUtc(e.FullPath));
+                var lastWriteUtc = File.GetLastWriteTimeUtc(e.FullPath);
+                _sessionFileCache.NoteWritten(e.FullPath, lastWriteUtc);
+                _sessionActivityTracker.Observe(lastWriteUtc);
                 _refreshDebouncer?.Add(e.FullPath);
                 break;
 
@@ -329,7 +332,9 @@ public sealed class DataService : IDisposable
         if (e.FullPath.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase))
         {
             locator?.NotifyFileCreated(e.FullPath);
-            _sessionActivityTracker.Observe(File.GetLastWriteTimeUtc(e.FullPath));
+            var lastWriteUtc = File.GetLastWriteTimeUtc(e.FullPath);
+            _sessionFileCache.NoteWritten(e.FullPath, lastWriteUtc);
+            _sessionActivityTracker.Observe(lastWriteUtc);
             _refreshDebouncer?.Add(e.FullPath);
         }
     }
@@ -356,9 +361,10 @@ public sealed class DataService : IDisposable
     /// <param name="e">An <see cref="ErrorEventArgs"/> that contains the failure.</param>
     private void SessionsWatcher_Error(object sender, ErrorEventArgs e)
     {
-        _logger.LogWarning(e.GetException(), "Error watching session files; discarding cached file listing");
+        _logger.LogWarning(e.GetException(), "Error watching session files; discarding cached file listing and write times");
 
         (_provider as ClaudeUsageProvider)?.Locator.InvalidateSessionFiles();
+        _sessionFileCache.ForgetWriteTimes();
         _cache.Remove(StatsCacheKey);
     }
 

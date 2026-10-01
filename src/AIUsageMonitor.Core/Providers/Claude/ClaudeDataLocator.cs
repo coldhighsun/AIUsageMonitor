@@ -175,7 +175,7 @@ public sealed class ClaudeDataLocator(string? claudeDir = null, TimeProvider? ti
     /// <summary>
     /// Gets the comparer for session file paths: case-insensitive on Windows, where event paths may differ in case.
     /// </summary>
-    private static StringComparer PathComparer { get; } =
+    internal static StringComparer PathComparer { get; } =
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     /// <summary>
