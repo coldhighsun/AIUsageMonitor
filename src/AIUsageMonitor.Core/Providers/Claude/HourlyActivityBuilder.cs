@@ -18,16 +18,11 @@ public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
     {
         var tokensByHour = new long[24];
 
-        for (var fileIndex = 0; fileIndex < sessionFiles.Count; fileIndex++)
+        sessionFileCache.WarmUp(sessionFiles, progress);
+
+        foreach (var file in sessionFiles)
         {
-            try
-            {
-                ProcessFile(sessionFiles[fileIndex], tokensByHour);
-            }
-            finally
-            {
-                progress?.Report((fileIndex + 1) * 100 / sessionFiles.Count);
-            }
+            ProcessFile(file, tokensByHour);
         }
 
         return Enumerable.Range(0, 24)
@@ -57,8 +52,7 @@ public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
         foreach (var msg in parsed)
         {
             if (msg.Type != "assistant" ||
-                msg.Timestamp is null ||
-                !DateTimeOffset.TryParse(msg.Timestamp, out var ts))
+                msg.Timestamp is not { } ts)
             {
                 continue;
             }

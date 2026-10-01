@@ -10,4 +10,8 @@
     <PackageReference Include="System.Runtime.Caching" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="AIUsageMonitor.Core.Tests" />
+  </ItemGroup>
+
 </Project>

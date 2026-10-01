@@ -31,16 +31,11 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
         var longestMessageCount = 0;
         string? longestTimestamp = null;
 
-        for (var fileIndex = 0; fileIndex < sessionFiles.Count; fileIndex++)
+        sessionFileCache.WarmUp(sessionFiles, progress);
+
+        foreach (var file in sessionFiles)
         {
-            try
-            {
-                ProcessFile(sessionFiles[fileIndex]);
-            }
-            finally
-            {
-                progress?.Report((fileIndex + 1) * 100 / sessionFiles.Count);
-            }
+            ProcessFile(file);
         }
 
         void ProcessFile(string file)
@@ -70,7 +65,7 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
 
             foreach (var msg in messages)
             {
-                if (msg.Timestamp is null || !DateTimeOffset.TryParse(msg.Timestamp, out var ts))
+                if (msg.Timestamp is not { } ts)
                 {
                     continue;
                 }
@@ -94,7 +89,7 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
                     : (Messages: 0, Sessions: new HashSet<string>(), ToolCalls: 0);
                 bucket.Sessions.Add(sessionId);
                 bucket.Messages++;
-                bucket.ToolCalls += SessionMessageAnalysis.CountToolCalls(msg);
+                bucket.ToolCalls += msg.Message?.ToolUseCount ?? 0;
                 dailyActivity[dateOnly] = bucket;
 
                 var hourKey = ts.LocalDateTime.Hour.ToString();
