@@ -1,4 +1,4 @@
-using System.CommandLine;
+﻿using System.CommandLine;
 using AIUsageMonitor.Cli;
 using AIUsageMonitor.Cli.Commands;
 using AIUsageMonitor.Core.Services;
@@ -6,6 +6,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
+
+// The longest the process lingers after a command finished, waiting for the background update check.
+var updateCheckMaxWait = TimeSpan.FromSeconds(2);
 
 try
 {
@@ -48,14 +51,18 @@ try
         AnsiConsole.Clear();
     }
 
+    // watch runs its own update check up front (it's a long-running loop, so the notice needs to
+    // show while it's running, not after it exits) - every other command starts the check here so it
+    // runs alongside the command, and prints the notice after the command's own output.
+    using var updateCheckCts = new CancellationTokenSource();
+    var updateCheck = isWatch ? null : UpdateNotice.StartCheck(updateCheckCts.Token, updateCheckLogger);
+
     var exitCode = await parseResult.InvokeAsync();
 
-    // watch runs its own update check up front (it's a long-running loop, so the notice needs to
-    // show while it's running, not after it exits) - every other command checks once here, after
-    // its own output, so the check never delays the command's actual result.
-    if (!isWatch)
+    if (updateCheck is not null)
     {
-        await UpdateNotice.PrintIfAvailableAsync(updateCheckLogger);
+        await UpdateNotice.PrintIfAvailableAsync(updateCheck, updateCheckMaxWait);
+        await updateCheckCts.CancelAsync();
     }
 
     return exitCode;
