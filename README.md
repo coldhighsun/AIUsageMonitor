@@ -7,6 +7,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/coldhighsun/AIUsageMonitor?logo=github)](https://github.com/coldhighsun/AIUsageMonitor/releases/latest)
 [![GitHub Release Downloads](https://img.shields.io/github/downloads/coldhighsun/AIUsageMonitor/total?logo=github&label=release%20downloads)](https://github.com/coldhighsun/AIUsageMonitor/releases)
+[![NuGet](https://img.shields.io/nuget/v/AIUsageMonitor.Cli?logo=nuget&label=nuget)](https://www.nuget.org/packages/AIUsageMonitor.Cli)
+[![NuGet Prerelease](https://img.shields.io/nuget/vpre/AIUsageMonitor.Cli?logo=nuget&label=nuget%20pre-release&color=orange)](https://www.nuget.org/packages/AIUsageMonitor.Cli/absoluteLatest)
 [![NuGet Tool Downloads](https://img.shields.io/nuget/dt/AIUsageMonitor.Cli?logo=nuget&label=nuget%20downloads)](https://www.nuget.org/packages/AIUsageMonitor.Cli)
 [![GitHub last commit](https://img.shields.io/github/last-commit/coldhighsun/AIUsageMonitor)](https://github.com/coldhighsun/AIUsageMonitor/commits/main)
 
