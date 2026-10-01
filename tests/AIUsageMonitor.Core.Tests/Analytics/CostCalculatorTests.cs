@@ -49,12 +49,30 @@ public class CostCalculatorTests
     [InlineData("claude-opus-5-20260101", 5.0, 25.0)]
     [InlineData("claude-sonnet-5-20260101", 2.0, 10.0)]
     [InlineData("claude-haiku-4-5-20251001", 1.0, 5.0)]
+    [InlineData("claude-opus-5-5", 4.0, 20.0)]
+    [InlineData("claude-opus-4-5-20251101", 5.0, 25.0)]
+    [InlineData("claude-opus-4-1-20250805", 15.0, 75.0)]
+    [InlineData("claude-opus-4-20250514", 15.0, 75.0)]
+    [InlineData("claude-fable-5-1", 10.0, 50.0)]
+    [InlineData("claude-haiku-3-5-20241022", 0.8, 4.0)]
     public void EstimateCost_ResolvesPricingByModelSubstring(string modelName, double inputPerMTok, double outputPerMTok)
     {
         var cost = _sut.EstimateCost(modelName, inputTokens: 1_000_000, outputTokens: 1_000_000,
             cacheReadTokens: 0, cacheCreationTokens: 0);
 
         Assert.Equal((decimal)(inputPerMTok + outputPerMTok), cost);
+    }
+
+    [Theory]
+    [InlineData("claude-opus-5-5", 0.20)]
+    [InlineData("claude-fable-5-1", 0.25)]
+    [InlineData("claude-fable-5", 1.0)]
+    public void EstimateCost_CacheReadRate_MatchesModelSpecificPrice(string modelName, double cacheReadPerMTok)
+    {
+        var cost = _sut.EstimateCost(modelName, inputTokens: 0, outputTokens: 0,
+            cacheReadTokens: 1_000_000, cacheCreationTokens: 0);
+
+        Assert.Equal((decimal)cacheReadPerMTok, cost);
     }
 
     [Fact]
