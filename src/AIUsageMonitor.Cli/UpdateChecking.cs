@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using GitHubReleaseUpdater;
 using Microsoft.Extensions.Logging;
 
@@ -26,7 +26,8 @@ public static class UpdateChecking
     public const string ReleaseUrl = $"https://github.com/{Owner}/{Repo}/releases/latest";
 
     /// <summary>
-    /// Checks whether a newer release than the current one is available on GitHub.
+    /// Checks whether a newer release than the current one is available, answering from the on-disk cache when it
+    /// is still fresh and otherwise asking GitHub and refreshing the cache.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the check.</param>
     /// <param name="logger">An optional logger used to record failed update checks.</param>
@@ -35,17 +36,70 @@ public static class UpdateChecking
     /// available" rather than propagated, since this check must never break the command it runs
     /// alongside.
     /// </returns>
-    public static async Task<UpdateCheckOutcome> CheckForUpdateAsync(
+    public static Task<UpdateCheckOutcome> CheckForUpdateAsync(
         CancellationToken cancellationToken = default, ILogger? logger = null)
     {
-        var noUpdate = new UpdateCheckOutcome(false, null, ReleaseUrl);
+        var cache = new UpdateCheckCache(UpdateCheckCache.DefaultPath, TimeProvider.System);
 
-        var currentVersion = GetCurrentVersionDisplayString();
+        return CheckForUpdateAsync(
+            GetCurrentVersionDisplayString(),
+            cache,
+            (version, ct) => FetchLatestAsync(version, logger, ct),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Core of the update check with its collaborators injected: consults <paramref name="cache"/> first, and only
+    /// calls <paramref name="fetchAsync"/> on a miss, remembering the result (including failures, briefly).
+    /// </summary>
+    /// <param name="currentVersion">The running version, or <see langword="null"/> if unknown (no check is made).</param>
+    /// <param name="cache">The cache of previous check results.</param>
+    /// <param name="fetchAsync">Asks GitHub for the latest release; returns <see langword="null"/> when the request failed.</param>
+    /// <param name="cancellationToken">A token to cancel the check.</param>
+    /// <returns>The check outcome; "no update" when nothing could be determined.</returns>
+    internal static async Task<UpdateCheckOutcome> CheckForUpdateAsync(
+        string? currentVersion,
+        UpdateCheckCache cache,
+        Func<string, CancellationToken, Task<UpdateCheckOutcome?>> fetchAsync,
+        CancellationToken cancellationToken)
+    {
+        var noUpdate = new UpdateCheckOutcome(false, null, ReleaseUrl);
         if (currentVersion is null)
         {
             return noUpdate;
         }
 
+        if (cache.TryGet(currentVersion) is { } cached)
+        {
+            return cached;
+        }
+
+        UpdateCheckOutcome? fetched;
+        try
+        {
+            fetched = await fetchAsync(currentVersion, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // An abandoned check says nothing about the network, so it is not remembered.
+            return noUpdate;
+        }
+
+        cache.Save(currentVersion, fetched ?? noUpdate, succeeded: fetched is not null);
+
+        return fetched ?? noUpdate;
+    }
+
+    /// <summary>
+    /// Asks GitHub for the latest release.
+    /// </summary>
+    /// <param name="currentVersion">The running version to compare against.</param>
+    /// <param name="logger">An optional logger used to record a failed check.</param>
+    /// <param name="cancellationToken">A token to cancel the request.</param>
+    /// <returns>The outcome, or <see langword="null"/> if GitHub could not be reached or answered unusably.</returns>
+    private static async Task<UpdateCheckOutcome?> FetchLatestAsync(
+        string currentVersion, ILogger? logger, CancellationToken cancellationToken)
+    {
         try
         {
             using var updater = new ReleaseUpdater(new UpdaterOptions
@@ -60,21 +114,19 @@ public static class UpdateChecking
             if (!check.Success)
             {
                 logger?.LogWarning("Update check failed: {Error}", check.Error);
-                return noUpdate;
+
+                return null;
             }
 
             return check.IsUpdateAvailable
                 ? new UpdateCheckOutcome(true, check.Update!.Version.ToString(), ReleaseUrl)
-                : noUpdate;
+                : new UpdateCheckOutcome(false, null, ReleaseUrl);
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // GitHubReleaseUpdater reports every other failure (network, timeout, parsing) via
-            // UpdateCheckResult.Success/Error instead of throwing; cancellation is the one
-            // exception it does let through, and this check must never break the command it runs
-            // alongside, so it is swallowed here too.
-            logger?.LogWarning(ex, "Update check was cancelled");
-            return noUpdate;
+            logger?.LogWarning("Update check timed out");
+
+            return null;
         }
     }
 
