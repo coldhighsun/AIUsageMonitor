@@ -54,22 +54,32 @@ internal static class LimitsAnchors
     /// Interactively prompts for both the session and weekly reset times and token limits, and
     /// persists the result. Used by <c>watch</c>'s recalibration hotkey. Each prompt shows the
     /// currently configured value (if any) as its default, so pressing Enter keeps it unchanged - the
-    /// same value is then returned as-is, without being re-validated against the 5-hour session
-    /// window, so a stale (already elapsed) session reset can still be kept without an error round-trip.
+    /// same value is then returned as-is. The session reset default is only ever the reset currently
+    /// in effect or a persisted one that is still in the future (see <see cref="SelectSessionResetDefault"/>),
+    /// so an already elapsed reset is never offered and cannot be re-applied by pressing Enter.
     /// </summary>
-    /// <param name="sessionCostSoFar">The estimated cost accrued for the current session window so far, used to re-derive its usage limit from a freshly entered percentage.</param>
-    /// <param name="weekCostSoFar">The estimated cost accrued for the current week window so far.</param>
+    /// <param name="costSoFarFor">
+    /// Computes the estimated session and week cost accrued so far for windows pinned to the reset
+    /// times just entered. It is called after the reset prompts and before the percentage prompts,
+    /// because the limit is derived as <c>cost / percent</c> and the cost of the window that was
+    /// on screen before recalibrating (pinned to the old reset times) differs from the cost of the
+    /// window the new reset times select.
+    /// </param>
     /// <param name="currentSessionResetAt">The confirmed, still-upcoming session reset currently in effect, offered as the prompt's default. Never pass an auto-computed estimate, or pressing Enter would pin it as a confirmed anchor.</param>
     /// <returns>The resolved session/weekly reset times and session/weekly usage (cost) limits.</returns>
     internal static (
         DateTimeOffset? SessionResetAt, (DayOfWeek Day, TimeSpan TimeOfDay)? WeekResetAt,
         decimal? SessionCostLimit, decimal? WeekCostLimit) PromptAndSaveBoth(
-        decimal sessionCostSoFar, decimal weekCostSoFar, DateTimeOffset? currentSessionResetAt)
+        Func<DateTimeOffset?, (DayOfWeek Day, TimeSpan TimeOfDay)?, (decimal Session, decimal Week)> costSoFarFor,
+        DateTimeOffset? currentSessionResetAt)
     {
         var saved = LimitsSettingsStore.Load();
 
-        var sessionResetAt = PromptForSessionReset(currentSessionResetAt ?? saved.SessionResetAt);
+        var sessionResetAt = PromptForSessionReset(
+            SelectSessionResetDefault(currentSessionResetAt, saved.SessionResetAt, DateTimeOffset.Now));
         var (weekResetAt, weekResetRaw) = PromptForWeekReset(saved.WeekResetAt);
+
+        var (sessionCostSoFar, weekCostSoFar) = costSoFarFor(sessionResetAt, weekResetAt);
         var sessionCostLimit = PromptForCostLimit(
             saved.SessionCostLimit, sessionCostSoFar,
             "[yellow]Session usage %[/] (from /usage), e.g. 32, Enter to keep:");
@@ -80,6 +90,20 @@ internal static class LimitsAnchors
         LimitsSettingsStore.Save(new(sessionResetAt, weekResetRaw, sessionCostLimit, weekCostLimit));
         return (sessionResetAt, weekResetAt, sessionCostLimit, weekCostLimit);
     }
+
+    /// <summary>
+    /// Picks the session reset time offered as the Enter-default when recalibrating. The reset
+    /// currently in effect wins; otherwise the persisted one is used, but only while it is still in
+    /// the future. An elapsed persisted reset must not be offered: accepting it would pin the session
+    /// to a past boundary and bring the previous window's data back.
+    /// </summary>
+    /// <param name="currentResetAt">The confirmed, still-upcoming session reset currently in effect, if any.</param>
+    /// <param name="savedResetAt">The persisted session reset time, if any.</param>
+    /// <param name="now">The current time.</param>
+    /// <returns>The reset time to offer as the default, or <see langword="null"/> for none.</returns>
+    internal static DateTimeOffset? SelectSessionResetDefault(
+        DateTimeOffset? currentResetAt, DateTimeOffset? savedResetAt, DateTimeOffset now)
+        => currentResetAt ?? (savedResetAt is { } saved && saved > now ? saved : null);
 
     /// <summary>
     /// Resolves the usage (cost) limit for one usage window (session or week) from a usage
@@ -263,7 +287,7 @@ internal static class LimitsAnchors
     /// breaking the usage-progress bar until the user recalibrates - most commonly when costSoFar
     /// is still 0 right after the window has reset.
     /// </summary>
-    private static decimal DeriveCostLimit(decimal costSoFar, double progressPercent)
+    internal static decimal DeriveCostLimit(decimal costSoFar, double progressPercent)
         => Math.Max(0.01m, costSoFar / (decimal)(progressPercent / 100));
 
     /// <summary>

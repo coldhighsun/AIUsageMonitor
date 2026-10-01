@@ -200,7 +200,12 @@ public static class WatchCommand
                 ClearScreen();
                 AnsiConsole.MarkupLine("[grey]Press Enter on any prompt to keep using a local estimate or the current value.[/]");
                 (effectiveSessionResetAt, effectiveWeekResetAt, effectiveSessionTokenLimit, effectiveWeekTokenLimit) = LimitsAnchors.PromptAndSaveBoth(
-                    lastSessionWindow?.EstimatedCost ?? 0, lastWeekWindow?.EstimatedCost ?? 0,
+                    (sessionReset, weekReset) => ProgressReporter.Run("Loading usage data...", p =>
+                    {
+                        lastSessionWindow = dataService.GetCurrentSessionWindow(sessionReset, p);
+                        lastWeekWindow = dataService.GetWeekWindow(weekReset, p);
+                        return (lastSessionWindow.EstimatedCost, lastWeekWindow.EstimatedCost);
+                    }),
                     lastSessionWindow is { Confidence: WindowConfidence.Confirmed, ResetsAt: { } shownReset } && shownReset > DateTimeOffset.Now ? shownReset : null);
                 ClearScreen();
                 current = ProgressReporter.Run("Loading usage data...", BuildCurrent);
