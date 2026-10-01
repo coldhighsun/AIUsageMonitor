@@ -232,6 +232,68 @@ public class SessionFileCacheTests : IDisposable
     }
 
     /// <summary>
+    /// Verifies that progress reports from the parallel warm-up arrive one at a time and in increasing order,
+    /// so a consumer that is not thread-safe (and a progress bar) sees a monotonic sequence ending at 100.
+    /// </summary>
+    [Fact]
+    public void WarmUp_ManyFiles_ReportsAreSerializedAndMonotonic()
+    {
+        var files = Enumerable.Range(0, 200).Select(i => Path.Combine(Path.GetTempPath(), $"session-{Guid.NewGuid()}-{i}.jsonl")).ToList();
+        var reported = new List<int>();
+        try
+        {
+            foreach (var file in files)
+            {
+                File.WriteAllLines(file, ["""{"type":"user","timestamp":"2026-08-01T00:00:00Z","sessionId":"s1"}"""]);
+            }
+
+            // Deliberately not thread-safe: the warm-up itself must serialize its reports.
+            _sut.WarmUp(files, new InlineProgress(reported.Add));
+
+            Assert.Equal(200, reported.Count);
+            Assert.Equal(reported.Order(), reported);
+            Assert.Equal(100, reported[^1]);
+        }
+        finally
+        {
+            foreach (var file in files)
+            {
+                File.Delete(file);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A progress reporter that invokes its callback inline and does no synchronization of its own.
+    /// </summary>
+    /// <param name="report">The callback invoked for each report.</param>
+    private sealed class InlineProgress(Action<int> report) : IProgress<int>
+    {
+        /// <summary>
+        /// Forwards the value to the callback on the calling thread.
+        /// </summary>
+        /// <param name="value">The reported value.</param>
+        public void Report(int value) => report(value);
+    }
+
+    /// <summary>
+    /// Verifies that threads refreshing the same changed file at once share one parse: every caller gets the same instance.
+    /// </summary>
+    [Fact]
+    public void GetRows_ConcurrentCallersForSameChangedFile_ShareOneParsedResult()
+    {
+        File.WriteAllLines(_tempFile, Enumerable.Range(0, 5000)
+            .Select(i => $$"""{"type":"user","timestamp":"2026-08-01T00:00:00Z","sessionId":"s{{i}}"}"""));
+
+        var results = Enumerable.Range(0, 16).AsParallel().WithDegreeOfParallelism(16)
+            .Select(_ => _sut.GetRows(_tempFile))
+            .ToList();
+
+        Assert.All(results, r => Assert.Same(results[0], r));
+        Assert.Equal(5000, results[0].Count);
+    }
+
+    /// <summary>
     /// A progress reporter that invokes its callback inline (unlike <see cref="Progress{T}"/>, which posts to the thread pool),
     /// serialized so concurrent reports from the parallel warm-up can safely share a plain list.
     /// </summary>

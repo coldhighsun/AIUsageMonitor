@@ -19,6 +19,16 @@ public sealed class DataService : IDisposable
     private const string StatsCacheKey = "StatsCache";
 
     /// <summary>
+    /// How long the session watcher must be quiet before the changed transcripts are refreshed in the background.
+    /// </summary>
+    private static readonly TimeSpan RefreshDebounceDelay = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// The longest a background refresh is postponed while change events keep arriving.
+    /// </summary>
+    private static readonly TimeSpan RefreshDebounceMaxWait = TimeSpan.FromSeconds(1);
+
+    /// <summary>
     /// The usage analyzer used to analyze AI usage data. This field is initialized in the constructor and is used to perform various analyses on the stats cache, such as generating daily summaries, model distributions, period summaries, and session statistics.
     /// </summary>
     private readonly UsageAnalyzer _analyzer;
@@ -59,6 +69,18 @@ public sealed class DataService : IDisposable
     /// The file system watcher used to monitor changes to session transcript files. This field is initialized in the constructor if the usage provider is a Claude usage provider and the stats cache file does not exist. The watcher listens for changes to JSONL files in the projects directory and clears the cached stats cache when changes are detected, ensuring that the service always has access to up-to-date data.
     /// </summary>
     private readonly FileSystemWatcher? _sessionsWatcher;
+
+    /// <summary>
+    /// Coalesces the bursts of change events raised while a transcript is being written to, so that each changed
+    /// file is refreshed in the background once per burst rather than once per event.
+    /// </summary>
+    private readonly PathChangeDebouncer? _refreshDebouncer;
+
+    /// <summary>
+    /// Watches for directories under the projects folder being created, deleted or renamed, which the
+    /// transcript watcher cannot see because of its <c>*.jsonl</c> filter.
+    /// </summary>
+    private readonly FileSystemWatcher? _directoriesWatcher;
 
     /// <summary>
     /// The file system watcher used to monitor changes to the stats cache file. This field is initialized in the constructor if the usage provider is a Claude usage provider and the stats cache file exists. The watcher listens for changes to the stats-cache.json file and clears the cached stats cache when changes are detected, ensuring that the service always has access to up-to-date data.
@@ -103,14 +125,35 @@ public sealed class DataService : IDisposable
             var projectsDir = claudeProvider.ProjectsDir;
             if (Directory.Exists(projectsDir))
             {
+                _refreshDebouncer = new(RefreshDebounceDelay, RefreshDebounceMaxWait, RefreshChangedFiles, TimeProvider.System);
                 _sessionsWatcher = new(projectsDir, "*.jsonl")
                 {
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime,
+                    // FileName is required for the watcher to report files being created, deleted and renamed.
+                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.FileName,
                     IncludeSubdirectories = true,
                     EnableRaisingEvents = true
                 };
                 _sessionsWatcher.Changed += SessionsWatcher_Changed;
-                _sessionsWatcher.Error += (_, e) => _logger.LogWarning(e.GetException(), "Error watching session files");
+                _sessionsWatcher.Created += SessionsWatcher_Changed;
+                _sessionsWatcher.Deleted += SessionsWatcher_Changed;
+                _sessionsWatcher.Renamed += SessionsWatcher_Renamed;
+                _sessionsWatcher.Error += SessionsWatcher_Error;
+
+                // The file watcher's "*.jsonl" filter hides directory renames and moves, which relocate every
+                // transcript beneath them, so directories get a watcher of their own.
+                _directoriesWatcher = new(projectsDir)
+                {
+                    NotifyFilter = NotifyFilters.DirectoryName,
+                    IncludeSubdirectories = true,
+                    EnableRaisingEvents = true
+                };
+                _directoriesWatcher.Created += DirectoriesWatcher_Changed;
+                _directoriesWatcher.Deleted += DirectoriesWatcher_Changed;
+                _directoriesWatcher.Renamed += DirectoriesWatcher_Changed;
+                _directoriesWatcher.Error += SessionsWatcher_Error;
+
+                // Only now that events are flowing may the file listing be cached: any later change reaches it.
+                claudeProvider.Locator.EnableChangeTracking();
             }
         }
     }
@@ -122,6 +165,8 @@ public sealed class DataService : IDisposable
     {
         _statsCacheWatcher?.Dispose();
         _sessionsWatcher?.Dispose();
+        _directoriesWatcher?.Dispose();
+        _refreshDebouncer?.Dispose();
         _cache.Dispose();
     }
 
@@ -232,8 +277,12 @@ public sealed class DataService : IDisposable
         return stats;
     }
 
+
     /// <summary>
-    /// Handles changes to session transcript files by updating the session file cache accordingly. When a session transcript file is changed or created, it is added to the cache, and when a session transcript file is deleted, it is removed from the cache. This ensures that the session file cache remains up-to-date with the latest session transcript data.
+    /// Handles a session transcript being changed, created or deleted. The cheap, correctness-relevant bookkeeping
+    /// (invalidating the stats cache, the file listing and the latest-write tracker) happens immediately; refreshing
+    /// the parsed rows is debounced and done in the background, because a transcript that is being written to raises
+    /// an event for nearly every append.
     /// </summary>
     /// <param name="sender">The source of the event.</param>
     /// <param name="e">A <see cref="FileSystemEventArgs"/> that contains the event data.</param>
@@ -247,13 +296,90 @@ public sealed class DataService : IDisposable
         {
             case WatcherChangeTypes.Changed:
             case WatcherChangeTypes.Created:
-                _sessionFileCache.Set(e.FullPath);
+                if (e.ChangeType == WatcherChangeTypes.Created)
+                {
+                    (_provider as ClaudeUsageProvider)?.Locator.NotifyFileCreated(e.FullPath);
+                }
+
                 _sessionActivityTracker.Observe(File.GetLastWriteTimeUtc(e.FullPath));
+                _refreshDebouncer?.Add(e.FullPath);
                 break;
 
             case WatcherChangeTypes.Deleted:
+                (_provider as ClaudeUsageProvider)?.Locator.NotifyFileDeleted(e.FullPath);
                 _sessionFileCache.Remove(e.FullPath);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Handles a session transcript being renamed: the old name disappears and the new one appears.
+    /// </summary>
+    /// <param name="sender">The source of the event.</param>
+    /// <param name="e">A <see cref="RenamedEventArgs"/> that contains the old and new paths.</param>
+    private void SessionsWatcher_Renamed(object sender, RenamedEventArgs e)
+    {
+        _logger.LogTrace("Session file renamed: {OldPath} -> {FullPath}", e.OldFullPath, e.FullPath);
+
+        _cache.Remove(StatsCacheKey);
+        _sessionFileCache.Remove(e.OldFullPath);
+
+        var locator = (_provider as ClaudeUsageProvider)?.Locator;
+        locator?.NotifyFileDeleted(e.OldFullPath);
+        if (e.FullPath.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase))
+        {
+            locator?.NotifyFileCreated(e.FullPath);
+            _sessionActivityTracker.Observe(File.GetLastWriteTimeUtc(e.FullPath));
+            _refreshDebouncer?.Add(e.FullPath);
+        }
+    }
+
+    /// <summary>
+    /// Handles a directory under the projects folder being created, deleted, renamed or moved. Such a change can
+    /// relocate any number of transcripts without a per-file event, so the cached file listing is dropped.
+    /// </summary>
+    /// <param name="sender">The source of the event.</param>
+    /// <param name="e">A <see cref="FileSystemEventArgs"/> that contains the event data.</param>
+    private void DirectoriesWatcher_Changed(object sender, FileSystemEventArgs e)
+    {
+        _logger.LogTrace("Project directory change detected: {ChangeType} - {FullPath}", e.ChangeType, e.FullPath);
+
+        (_provider as ClaudeUsageProvider)?.Locator.InvalidateSessionFiles();
+        _cache.Remove(StatsCacheKey);
+    }
+
+    /// <summary>
+    /// Handles the session watcher losing events (e.g. its buffer overflowed): nothing cached from events can be
+    /// trusted any more, so the file listing and stats cache are dropped and rebuilt on next use.
+    /// </summary>
+    /// <param name="sender">The source of the event.</param>
+    /// <param name="e">An <see cref="ErrorEventArgs"/> that contains the failure.</param>
+    private void SessionsWatcher_Error(object sender, ErrorEventArgs e)
+    {
+        _logger.LogWarning(e.GetException(), "Error watching session files; discarding cached file listing");
+
+        (_provider as ClaudeUsageProvider)?.Locator.InvalidateSessionFiles();
+        _cache.Remove(StatsCacheKey);
+    }
+
+    /// <summary>
+    /// Refreshes the parsed rows of transcripts that changed, off the watcher thread. Failures are logged and
+    /// swallowed: this runs on a timer thread, where an escaping exception would terminate the process, and the
+    /// rows are refreshed again on demand anyway.
+    /// </summary>
+    /// <param name="paths">The distinct transcripts that changed during the last burst of events.</param>
+    private void RefreshChangedFiles(IReadOnlyList<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            try
+            {
+                _sessionFileCache.Set(path);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Background refresh of {File} failed", path);
+            }
         }
     }
 }
