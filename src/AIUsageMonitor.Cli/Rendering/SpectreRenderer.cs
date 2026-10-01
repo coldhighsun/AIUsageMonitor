@@ -17,14 +17,12 @@ public static class SpectreRenderer
     private const double PaceGapThreshold = 0.15;
 
     /// <summary>
-    /// A palette for per-row bar charts (e.g. daily tokens) where every consecutive pair - including
+    /// A palette for per-row bar charts (daily, hourly and per-model tokens) where every consecutive pair - including
     /// the wrap-around from the last color back to the first - must be visually distinct, since
     /// adjacent rows are told apart mainly by bar color.
     /// </summary>
     private static readonly Color[] DailyBarColors =
-        [Color.Blue, Color.Red, Color.Green, Color.Gold1, Color.Purple, Color.Cyan1];
-
-    private static readonly Color[] HourlyBarColors = [Color.Blue, Color.SkyBlue1, Color.Green, Color.Yellow3];
+        [Color.Cyan1, Color.Red, Color.Gold1, Color.DodgerBlue1, Color.Green3, Color.Magenta1];
 
     /// <summary>
     /// Builds a renderable summary for a single day, including key stats and a token distribution chart by model.
@@ -67,7 +65,7 @@ public static class SpectreRenderer
         var colorIndex = 0;
         foreach (var h in hours)
         {
-            chart.AddItem($"{h.Hour:D2}:00", h.TotalTokens, HourlyBarColors[colorIndex % HourlyBarColors.Length]);
+            chart.AddItem($"{h.Hour:D2}:00", h.TotalTokens, DailyBarColors[colorIndex % DailyBarColors.Length]);
             colorIndex++;
         }
         return chart;
@@ -84,7 +82,7 @@ public static class SpectreRenderer
         var colorIndex = 0;
         foreach (var bucket in buckets)
         {
-            chart.AddItem(bucket.HourStart.ToString("HH:00"), bucket.TotalTokens, HourlyBarColors[colorIndex % HourlyBarColors.Length]);
+            chart.AddItem(bucket.HourStart.ToString("HH:00"), bucket.TotalTokens, DailyBarColors[colorIndex % DailyBarColors.Length]);
             colorIndex++;
         }
         return chart;
@@ -177,7 +175,7 @@ public static class SpectreRenderer
         var colorIndex = 0;
         foreach (var bucket in recent.HourlyTrend)
         {
-            chart.AddItem(bucket.HourStart.ToString("HH:00"), bucket.Messages, HourlyBarColors[colorIndex % HourlyBarColors.Length]);
+            chart.AddItem(bucket.HourStart.ToString("HH:00"), bucket.Messages, DailyBarColors[colorIndex % DailyBarColors.Length]);
             colorIndex++;
         }
         return new Rows(table, chart);
