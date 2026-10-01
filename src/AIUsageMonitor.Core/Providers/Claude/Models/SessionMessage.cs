@@ -8,10 +8,12 @@ namespace AIUsageMonitor.Core.Providers.Claude.Models;
 public sealed class MessageContent
 {
     /// <summary>
-    /// Gets the raw content of the message, which may be a string or a structured JSON element.
+    /// Gets the number of <c>tool_use</c> blocks in the message content. The content itself is not retained,
+    /// because tool inputs and results can be very large and are not needed by any analytics.
     /// </summary>
     [JsonPropertyName("content")]
-    public System.Text.Json.JsonElement? Content { get; init; }
+    [JsonConverter(typeof(ToolUseCountConverter))]
+    public int ToolUseCount { get; init; }
 
     /// <summary>
     /// Gets the API-assigned identifier of the message (e.g. <c>msg_...</c>), used to detect
@@ -70,10 +72,12 @@ public sealed class SessionMessage
     public string? SessionId { get; init; }
 
     /// <summary>
-    /// Gets the timestamp indicating when the message was recorded.
+    /// Gets the timestamp indicating when the message was recorded, parsed once at read time;
+    /// <see langword="null"/> when the line has no timestamp or it cannot be parsed.
     /// </summary>
     [JsonPropertyName("timestamp")]
-    public string? Timestamp { get; init; }
+    [JsonConverter(typeof(LenientTimestampConverter))]
+    public DateTimeOffset? Timestamp { get; init; }
 
     /// <summary>
     /// Gets the type of the message (e.g., "user" or "assistant").

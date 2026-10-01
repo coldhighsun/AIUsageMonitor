@@ -32,16 +32,12 @@ public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, Cos
         var modelUsage = new Dictionary<string, (long Input, long Output, long CacheRead, long CacheCreation5m, long CacheCreation1h)>();
         var hourBuckets = new Dictionary<DateTimeOffset, (int Messages, long Tokens)>();
 
-        for (var fileIndex = 0; fileIndex < sessionFiles.Count; fileIndex++)
+        var candidateFiles = sessionFileCache.GetFilesModifiedSince(sessionFiles, since);
+        sessionFileCache.WarmUp(candidateFiles, progress);
+
+        foreach (var file in candidateFiles)
         {
-            try
-            {
-                ProcessFile(sessionFiles[fileIndex]);
-            }
-            finally
-            {
-                progress?.Report((fileIndex + 1) * 100 / sessionFiles.Count);
-            }
+            ProcessFile(file);
         }
 
         var estimatedCost = modelUsage.Sum(kvp =>
@@ -84,7 +80,7 @@ public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, Cos
 
             foreach (var msg in parsed)
             {
-                if (msg.Timestamp is null || !DateTimeOffset.TryParse(msg.Timestamp, out var ts) || ts < since)
+                if (msg.Timestamp is not { } ts || ts < since)
                 {
                     continue;
                 }
@@ -99,7 +95,7 @@ public sealed class RecentActivityBuilder(SessionFileCache sessionFileCache, Cos
 
                 sessionIds.Add(sessionId);
                 messages++;
-                toolCalls += SessionMessageAnalysis.CountToolCalls(msg);
+                toolCalls += msg.Message?.ToolUseCount ?? 0;
 
                 var hourStart = new DateTimeOffset(ts.Year, ts.Month, ts.Day, ts.Hour, 0, 0, ts.Offset);
                 var bucket = hourBuckets.GetValueOrDefault(hourStart);

@@ -272,4 +272,75 @@ public class SessionBlockBuilderTests : IDisposable
         Assert.Equal(expectedStart.AddDays(7), result.ResetsAt);
         Assert.Equal(1, result.Messages);
     }
+
+    [Fact]
+    public void BuildCurrentSessionWindow_ContinuousActivityOlderThanFirstLookback_MatchesFullHistoryScan()
+    {
+        // Messages every 4h for ~7 days: no idle gap > 5h, so block boundaries (every 8h) depend on where the chain begins.
+        // The chain's first message is j = 41 (odd), so blocks start at odd j and the current block holds j = 1 and j = 0.
+        // Scanning only the most recent day would start the phase at j = 6 and wrongly make j = 0 a block start.
+        var now = DateTimeOffset.Now;
+        DateTimeOffset At(int j) => now.AddMinutes(-30).AddHours(-4 * j);
+
+        var recentFile = Path.Combine(Path.GetTempPath(), $"session-{Guid.NewGuid()}.jsonl");
+        try
+        {
+            File.WriteAllLines(recentFile, Enumerable.Range(0, 7).Select(j => BuildLine(At(j), $"r{j}")));
+            File.WriteAllLines(_tempFile, Enumerable.Range(7, 35).Select(j => BuildLine(At(j), $"r{j}")));
+            File.SetLastWriteTimeUtc(_tempFile, At(7).UtcDateTime);
+
+            var result = _sut.BuildCurrentSessionWindow([recentFile, _tempFile], sessionResetAt: null);
+
+            var expectedStart = FloorToTenMinutes(At(1));
+            Assert.Equal(WindowConfidence.Estimated, result.Confidence);
+            Assert.Equal(2, result.Messages);
+            Assert.Equal(expectedStart, result.WindowStart);
+        }
+        finally
+        {
+            File.Delete(recentFile);
+        }
+    }
+
+    [Fact]
+    public void BuildCurrentSessionWindow_OldActivityOnlyInStaleFile_ReportsUnknown()
+    {
+        var now = DateTimeOffset.Now;
+        File.WriteAllLines(_tempFile, [BuildLine(now.AddDays(-5), "req-old")]);
+        File.SetLastWriteTimeUtc(_tempFile, now.AddDays(-5).UtcDateTime);
+
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], sessionResetAt: null);
+
+        Assert.Equal(WindowConfidence.Unknown, result.Confidence);
+        Assert.Equal(0, result.Messages);
+    }
+
+    [Fact]
+    public void BuildWeekWindow_NoAnchor_DoesNotOpenFilesLastWrittenBeforeTheWindow()
+    {
+        // A transcript line can never be newer than its file's last-write time, so a file last written
+        // long before the window is skipped without being read, even if its content claims otherwise.
+        var now = DateTimeOffset.Now;
+        File.WriteAllLines(_tempFile, [BuildLine(now.AddDays(-1), "req-in-window")]);
+        File.SetLastWriteTimeUtc(_tempFile, now.AddDays(-30).UtcDateTime);
+
+        var result = _sut.BuildWeekWindow([_tempFile], anchor: null);
+
+        Assert.Equal(0, result.Messages);
+    }
+
+    [Fact]
+    public void BuildWeekWindow_NoAnchor_CountsRecentlyWrittenFilesWithinTrailingSevenDays()
+    {
+        var now = DateTimeOffset.Now;
+        File.WriteAllLines(_tempFile,
+        [
+            BuildLine(now.AddDays(-10), "req-out"),
+            BuildLine(now.AddDays(-2), "req-in"),
+        ]);
+
+        var result = _sut.BuildWeekWindow([_tempFile], anchor: null);
+
+        Assert.Equal(1, result.Messages);
+    }
 }

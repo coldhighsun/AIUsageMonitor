@@ -2,6 +2,7 @@ using AIUsageMonitor.Core.Analytics;
 using AIUsageMonitor.Core.Providers;
 using AIUsageMonitor.Core.Providers.Claude;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace AIUsageMonitor.Core.Services;
 
@@ -21,6 +22,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<StatsCacheParser>();
         services.AddSingleton<StatsCacheBuilder>();
         services.AddSingleton<SessionParser>();
+        services.AddSingleton(sp => new SessionRowDiskCache(
+            SessionRowDiskCache.DefaultDirectory, sp.GetRequiredService<ILogger<SessionRowDiskCache>>()));
         services.AddSingleton<SessionFileCache>();
         services.AddSingleton<SessionActivityTracker>();
         services.AddSingleton<CostCalculator>();

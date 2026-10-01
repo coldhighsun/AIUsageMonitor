@@ -165,4 +165,86 @@ public class SessionFileCacheTests : IDisposable
         Assert.Same(first, second);
         Assert.Single(first);
     }
+
+    [Fact]
+    public void GetFilesModifiedSince_FiltersOutFilesOlderThanWindow()
+    {
+        var recent = Path.Combine(Path.GetTempPath(), $"session-{Guid.NewGuid()}.jsonl");
+        var stale = Path.Combine(Path.GetTempPath(), $"session-{Guid.NewGuid()}.jsonl");
+        var missing = Path.Combine(Path.GetTempPath(), $"session-{Guid.NewGuid()}.jsonl");
+        try
+        {
+            File.WriteAllText(recent, "");
+            File.WriteAllText(stale, "");
+            File.SetLastWriteTimeUtc(recent, DateTime.UtcNow.AddHours(-2));
+            File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-10));
+
+            var result = _sut.GetFilesModifiedSince([recent, stale, missing], DateTimeOffset.UtcNow.AddDays(-1));
+
+            Assert.Equal([recent], result);
+        }
+        finally
+        {
+            File.Delete(recent);
+            File.Delete(stale);
+        }
+    }
+
+    [Fact]
+    public void GetFilesModifiedSince_FileJustBeforeWindowStart_IsKeptForClockSkew()
+    {
+        File.WriteAllText(_tempFile, "");
+        File.SetLastWriteTimeUtc(_tempFile, DateTime.UtcNow.AddDays(-1).AddMinutes(-10));
+
+        var result = _sut.GetFilesModifiedSince([_tempFile], DateTimeOffset.UtcNow.AddDays(-1));
+
+        Assert.Equal([_tempFile], result);
+    }
+
+    [Fact]
+    public void WarmUp_ParsesFilesInParallelAndReportsCompletion()
+    {
+        var files = Enumerable.Range(0, 20).Select(i => Path.Combine(Path.GetTempPath(), $"session-{Guid.NewGuid()}-{i}.jsonl")).ToList();
+        var missing = Path.Combine(Path.GetTempPath(), $"session-{Guid.NewGuid()}.jsonl");
+        var reported = new List<int>();
+        var progress = new SynchronousProgress(reported.Add);
+        try
+        {
+            foreach (var file in files)
+            {
+                File.WriteAllLines(file, ["""{"type":"user","timestamp":"2026-08-01T00:00:00Z","sessionId":"s1"}"""]);
+            }
+
+            _sut.WarmUp([.. files, missing], progress);
+
+            Assert.Equal(21, reported.Count);
+            Assert.Equal(100, reported.Max());
+            Assert.All(files, f => Assert.Same(_sut.GetRows(f), _sut.GetRows(f)));
+            Assert.All(files, f => Assert.Single(_sut.GetRows(f)));
+        }
+        finally
+        {
+            foreach (var file in files)
+            {
+                File.Delete(file);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A progress reporter that invokes its callback inline (unlike <see cref="Progress{T}"/>, which posts to the thread pool),
+    /// serialized so concurrent reports from the parallel warm-up can safely share a plain list.
+    /// </summary>
+    private sealed class SynchronousProgress(Action<int> report) : IProgress<int>
+    {
+        private readonly object _gate = new();
+
+        public void Report(int value)
+        {
+            lock (_gate)
+            {
+                report(value);
+            }
+        }
+    }
 }

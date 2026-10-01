@@ -26,6 +26,16 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
     private static readonly TimeSpan WeekWindowDuration = TimeSpan.FromDays(7);
 
     /// <summary>
+    /// The granularity an estimated window start is floored to, which bounds how far before a scan start the window may reach.
+    /// </summary>
+    private static readonly TimeSpan WindowStartFloorGranularity = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// The progressively wider lookbacks tried when estimating the current block, before falling back to the whole history.
+    /// </summary>
+    private static readonly TimeSpan[] BlockLookbacks = [TimeSpan.FromDays(1), TimeSpan.FromDays(3), TimeSpan.FromDays(14)];
+
+    /// <summary>
     /// Builds a summary of the current 5-hour session window.
     /// </summary>
     /// <param name="sessionFiles">A list of session file paths to process.</param>
@@ -39,22 +49,32 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
     public UsageWindowSummary BuildCurrentSessionWindow(
         IReadOnlyList<string> sessionFiles, DateTimeOffset? sessionResetAt, IProgress<int>? progress = null)
     {
-        var messages = ReadMessages(sessionFiles, progress);
         var now = DateTimeOffset.Now;
 
         if (sessionResetAt is { } resetAt && now < resetAt)
         {
             var confirmedStart = resetAt - SessionWindowDuration;
-            return Summarize(messages.Where(m => m.Timestamp >= confirmedStart && m.Timestamp < resetAt),
+            var pinnedMessages = ReadMessages(sessionFiles, progress, confirmedStart);
+            return Summarize(pinnedMessages.Where(m => m.Timestamp >= confirmedStart && m.Timestamp < resetAt),
                 confirmedStart, resetAt, WindowConfidence.Confirmed);
         }
 
         // A confirmed reset time that has elapsed is a known boundary: the next window only opens
         // on the first message after it, so pre-reset activity must not bleed into it even if it
         // would otherwise look like the same rolling block (no >5h idle gap).
-        var scanCandidates = sessionResetAt is { } elapsedResetAt
-            ? messages.Where(m => m.Timestamp >= elapsedResetAt).ToList()
-            : messages;
+        List<Message> messages;
+        List<Message> scanCandidates;
+        if (sessionResetAt is { } elapsedResetAt)
+        {
+            messages = ReadMessages(sessionFiles, progress, elapsedResetAt - WindowStartFloorGranularity);
+            scanCandidates = messages.Where(m => m.Timestamp >= elapsedResetAt).ToList();
+        }
+        else
+        {
+            messages = ReadMessagesForBlockScan(sessionFiles, now, progress);
+            scanCandidates = messages;
+        }
+
         var (scanStart, _) = ScanBlocks(scanCandidates);
 
         if (scanStart is null)
@@ -135,19 +155,19 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
     public UsageWindowSummary BuildWeekWindow(
         IReadOnlyList<string> sessionFiles, (DayOfWeek Day, TimeSpan TimeOfDay)? anchor, IProgress<int>? progress = null)
     {
-        var messages = ReadMessages(sessionFiles, progress);
         var now = DateTimeOffset.Now;
 
         if (anchor is { } weeklyAnchor)
         {
             var windowStart = MostRecentAnchorOccurrence(now, weeklyAnchor);
             var resetsAt = windowStart + WeekWindowDuration;
-            return Summarize(messages.Where(m => m.Timestamp >= windowStart && m.Timestamp < resetsAt),
+            var anchoredMessages = ReadMessages(sessionFiles, progress, windowStart);
+            return Summarize(anchoredMessages.Where(m => m.Timestamp >= windowStart && m.Timestamp < resetsAt),
                 windowStart, resetsAt, WindowConfidence.Confirmed);
         }
 
         var since = now - WeekWindowDuration;
-        var inWindow = messages.Where(m => m.Timestamp >= since);
+        var inWindow = ReadMessages(sessionFiles, progress, since).Where(m => m.Timestamp >= since);
         return Summarize(inWindow, since, resetsAt: null, WindowConfidence.Unknown);
     }
 
@@ -163,23 +183,81 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
         return candidate;
     }
 
-    private List<Message> ReadMessages(IReadOnlyList<string> sessionFiles, IProgress<int>? progress)
+    /// <summary>
+    /// Reads the user/assistant messages of all files that may hold messages at or after <paramref name="since"/>.
+    /// </summary>
+    /// <param name="sessionFiles">The session transcript files.</param>
+    /// <param name="progress">An optional progress reporter (0-100).</param>
+    /// <param name="since">The earliest message timestamp needed, or <see langword="null"/> to read the whole history.</param>
+    /// <returns>All messages of the selected files; may include some older than <paramref name="since"/>.</returns>
+    private List<Message> ReadMessages(
+        IReadOnlyList<string> sessionFiles, IProgress<int>? progress, DateTimeOffset? since = null)
     {
         var result = new List<Message>();
+        var candidates = since is { } start ? sessionFileCache.GetFilesModifiedSince(sessionFiles, start) : sessionFiles;
 
-        for (var fileIndex = 0; fileIndex < sessionFiles.Count; fileIndex++)
+        sessionFileCache.WarmUp(candidates, progress);
+
+        foreach (var file in candidates)
         {
-            try
-            {
-                ProcessFile(sessionFiles[fileIndex], result);
-            }
-            finally
-            {
-                progress?.Report((fileIndex + 1) * 100 / sessionFiles.Count);
-            }
+            ProcessFile(file, result);
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Reads enough recent history to derive the latest rolling block exactly. Block boundaries depend on the
+    /// phase of the whole chain of earlier blocks, but a gap longer than the window always starts a new block no
+    /// matter what came before it. So the lookback is widened until the loaded messages contain such a gap (or the
+    /// lookback itself begins with one); only then is the result guaranteed to equal a scan of the full history.
+    /// </summary>
+    /// <param name="sessionFiles">The session transcript files.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="progress">An optional progress reporter (0-100), used only for the final whole-history read.</param>
+    /// <returns>Messages sufficient to scan for the latest block.</returns>
+    private List<Message> ReadMessagesForBlockScan(
+        IReadOnlyList<string> sessionFiles, DateTimeOffset now, IProgress<int>? progress)
+    {
+        foreach (var lookback in BlockLookbacks)
+        {
+            var cutoff = now - lookback;
+            var messages = ReadMessages(sessionFiles, null, cutoff);
+            if (HasBlockAnchor(messages, cutoff))
+            {
+                return messages;
+            }
+        }
+
+        return ReadMessages(sessionFiles, progress);
+    }
+
+    /// <summary>
+    /// Determines whether scanning <paramref name="messages"/> alone yields the same latest block as scanning all
+    /// earlier history too. That holds when a gap longer than the window separates two consecutive messages, or
+    /// separates the lookback cutoff from the first message at or after it, or when nothing was recorded since
+    /// the cutoff at all (then the latest block started well over a window ago either way).
+    /// </summary>
+    /// <param name="messages">The loaded messages, in any order.</param>
+    /// <param name="cutoff">The lookback cutoff; every message at or after it is guaranteed to be loaded.</param>
+    /// <returns><see langword="true"/> if the loaded messages are sufficient for the block scan.</returns>
+    private static bool HasBlockAnchor(List<Message> messages, DateTimeOffset cutoff)
+    {
+        var ordered = messages.Where(m => m.Timestamp >= cutoff).OrderBy(m => m.Timestamp).ToList();
+        if (ordered.Count == 0 || ordered[0].Timestamp - cutoff > SessionWindowDuration)
+        {
+            return true;
+        }
+
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            if (ordered[i].Timestamp - ordered[i - 1].Timestamp > SessionWindowDuration)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void ProcessFile(string file, List<Message> result)
@@ -197,8 +275,7 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
         foreach (var msg in parsed)
         {
             if (msg.Type is not "user" and not "assistant"
-                || msg.Timestamp is null
-                || !DateTimeOffset.TryParse(msg.Timestamp, out var ts))
+                || msg.Timestamp is not { } ts)
             {
                 continue;
             }
