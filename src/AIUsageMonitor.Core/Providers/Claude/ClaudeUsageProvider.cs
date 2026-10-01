@@ -28,6 +28,9 @@ public sealed class ClaudeUsageProvider(
     /// <summary>Gets the display name of this usage provider.</summary>
     public string Name => "Claude";
 
+    /// <summary>Gets the locator that finds the Claude data files this provider reads.</summary>
+    internal ClaudeDataLocator Locator => locator;
+
     /// <summary>Gets the directory containing Claude project/session data.</summary>
     public string ProjectsDir => locator.ProjectsDir;
 

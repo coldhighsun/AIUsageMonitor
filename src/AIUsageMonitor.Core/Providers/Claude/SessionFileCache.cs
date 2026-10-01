@@ -38,6 +38,11 @@ public sealed class SessionFileCache(
     private readonly ConcurrentDictionary<string, long> _lastDiskWriteTicks = new();
 
     /// <summary>
+    /// One lock object per file, serializing concurrent refreshes of the same transcript.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, object> _gates = new();
+
+    /// <summary>
     /// Gets the parsed rows for a given session transcript file. If the file has not changed since the last read, returns the cached rows; otherwise, parses what changed (only the appended lines when possible) and updates the cache.
     /// If the file cannot be read (e.g. it is temporarily locked by another process), the previously cached rows are returned instead, if any.
     /// </summary>
@@ -83,6 +88,7 @@ public sealed class SessionFileCache(
     public void WarmUp(IReadOnlyList<string> filePaths, IProgress<int>? progress = null)
     {
         var completed = 0;
+        var progressLock = new Lock();
         var total = filePaths.Count;
 
         Parallel.For(
@@ -102,7 +108,16 @@ public sealed class SessionFileCache(
                 }
                 finally
                 {
-                    progress?.Report(Interlocked.Increment(ref completed) * 100 / total);
+                    // Counted and reported under one lock so that reports are serialized and never go backwards:
+                    // reporting outside it lets a thread with a smaller count overtake one with a larger count.
+                    if (progress is not null)
+                    {
+                        lock (progressLock)
+                        {
+                            completed++;
+                            progress.Report(completed * 100 / total);
+                        }
+                    }
                 }
             });
     }
@@ -120,6 +135,7 @@ public sealed class SessionFileCache(
             {
                 _cache.TryRemove(key, out _);
                 _lastDiskWriteTicks.TryRemove(key, out _);
+                _gates.TryRemove(key, out _);
             }
         }
 
@@ -134,6 +150,7 @@ public sealed class SessionFileCache(
     {
         _cache.TryRemove(filePath, out _);
         _lastDiskWriteTicks.TryRemove(filePath, out _);
+        _gates.TryRemove(filePath, out _);
         diskCache?.Remove(filePath);
     }
 
@@ -166,6 +183,38 @@ public sealed class SessionFileCache(
         var length = info.Length;
         var lastWriteTicks = info.LastWriteTimeUtc.Ticks;
 
+        if (_cache.TryGetValue(filePath, out var current) && current.Matches(length, lastWriteTicks))
+        {
+            return current;
+        }
+
+        // One refresh per file at a time: when the watcher's background refresh and a caller want the same
+        // changed file, the second waits and then finds the entry up to date instead of parsing it again.
+        lock (_gates.GetOrAdd(filePath, static _ => new object()))
+        {
+            // Re-stat now that the lock is held: while waiting, another refresh may have parsed a newer state, and
+            // acting on the older size would make that state look un-extendable and force a full re-parse.
+            info.Refresh();
+            if (!info.Exists)
+            {
+                Remove(filePath);
+
+                return null;
+            }
+
+            return RefreshLocked(filePath, info.Length, info.LastWriteTimeUtc.Ticks);
+        }
+    }
+
+    /// <summary>
+    /// Refreshes a transcript's cached state; the caller holds the file's gate.
+    /// </summary>
+    /// <param name="filePath">The path to the session transcript file.</param>
+    /// <param name="length">The file's current size.</param>
+    /// <param name="lastWriteTicks">The file's current last-write time, as UTC ticks.</param>
+    /// <returns>The up-to-date state, the last known state if the file cannot be read now, or <see langword="null"/> if there is none.</returns>
+    private CachedSessionFile? RefreshLocked(string filePath, long length, long lastWriteTicks)
+    {
         _cache.TryGetValue(filePath, out var known);
         if (known is not null && known.Matches(length, lastWriteTicks))
         {
