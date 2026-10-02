@@ -206,7 +206,7 @@ public static class WatchCommand
                         lastWeekWindow = dataService.GetWeekWindow(weekReset, p);
                         return (lastSessionWindow.EstimatedCost, lastWeekWindow.EstimatedCost);
                     }),
-                    lastSessionWindow is { Confidence: WindowConfidence.Confirmed, ResetsAt: { } shownReset } && shownReset > DateTimeOffset.Now ? shownReset : null);
+                    LimitsAnchors.SelectShownSessionReset(lastSessionWindow, DateTimeOffset.Now));
                 ClearScreen();
                 current = ProgressReporter.Run("Loading usage data...", BuildCurrent);
             }

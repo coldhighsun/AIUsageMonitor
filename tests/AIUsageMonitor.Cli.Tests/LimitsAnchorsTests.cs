@@ -1,4 +1,5 @@
 using AIUsageMonitor.Cli.Commands;
+using AIUsageMonitor.Core.Models;
 using Xunit;
 
 namespace AIUsageMonitor.Cli.Tests;
@@ -73,6 +74,60 @@ public class LimitsAnchorsTests
         var result = LimitsAnchors.SelectSessionResetDefault(null, null, Now);
 
         Assert.Null(result);
+    }
+
+    /// <summary>
+    /// Builds a session window with the given reset time and confidence.
+    /// </summary>
+    private static UsageWindowSummary Window(DateTimeOffset? resetsAt, WindowConfidence confidence)
+        => new(null, resetsAt, 0, 0, [], 0m, confidence);
+
+    /// <summary>
+    /// Verifies that an upcoming estimated reset is offered as the default.
+    /// </summary>
+    [Fact]
+    public void SelectShownSessionReset_EstimatedUpcoming_ReturnsReset()
+    {
+        var reset = Now.AddHours(2);
+
+        var result = LimitsAnchors.SelectShownSessionReset(Window(reset, WindowConfidence.Estimated), Now);
+
+        Assert.Equal(reset, result);
+    }
+
+    /// <summary>
+    /// Verifies that an upcoming confirmed reset is offered as the default.
+    /// </summary>
+    [Fact]
+    public void SelectShownSessionReset_ConfirmedUpcoming_ReturnsReset()
+    {
+        var reset = Now.AddHours(2);
+
+        var result = LimitsAnchors.SelectShownSessionReset(Window(reset, WindowConfidence.Confirmed), Now);
+
+        Assert.Equal(reset, result);
+    }
+
+    /// <summary>
+    /// Verifies that an elapsed reset is not offered.
+    /// </summary>
+    [Fact]
+    public void SelectShownSessionReset_Elapsed_ReturnsNull()
+    {
+        var result = LimitsAnchors.SelectShownSessionReset(
+            Window(Now.AddMinutes(-1), WindowConfidence.Estimated), Now);
+
+        Assert.Null(result);
+    }
+
+    /// <summary>
+    /// Verifies that nothing is offered when the window has no reset time or does not exist.
+    /// </summary>
+    [Fact]
+    public void SelectShownSessionReset_NoResetOrNoWindow_ReturnsNull()
+    {
+        Assert.Null(LimitsAnchors.SelectShownSessionReset(Window(null, WindowConfidence.Unknown), Now));
+        Assert.Null(LimitsAnchors.SelectShownSessionReset(null, Now));
     }
 
     /// <summary>
