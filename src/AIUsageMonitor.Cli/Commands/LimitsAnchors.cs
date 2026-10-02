@@ -1,3 +1,4 @@
+using AIUsageMonitor.Core.Models;
 using Spectre.Console;
 using System.CommandLine;
 using System.Globalization;
@@ -65,7 +66,7 @@ internal static class LimitsAnchors
     /// on screen before recalibrating (pinned to the old reset times) differs from the cost of the
     /// window the new reset times select.
     /// </param>
-    /// <param name="currentSessionResetAt">The confirmed, still-upcoming session reset currently in effect, offered as the prompt's default. Never pass an auto-computed estimate, or pressing Enter would pin it as a confirmed anchor.</param>
+    /// <param name="currentSessionResetAt">The still-upcoming session reset currently shown (confirmed or locally estimated), offered as the prompt's default. Pressing Enter accepts it and pins it as a confirmed anchor.</param>
     /// <returns>The resolved session/weekly reset times and session/weekly usage (cost) limits.</returns>
     internal static (
         DateTimeOffset? SessionResetAt, (DayOfWeek Day, TimeSpan TimeOfDay)? WeekResetAt,
@@ -104,6 +105,16 @@ internal static class LimitsAnchors
     internal static DateTimeOffset? SelectSessionResetDefault(
         DateTimeOffset? currentResetAt, DateTimeOffset? savedResetAt, DateTimeOffset now)
         => currentResetAt ?? (savedResetAt is { } saved && saved > now ? saved : null);
+
+    /// <summary>
+    /// Picks the session reset time currently shown on screen, whether confirmed or estimated, so
+    /// it can be offered as the Enter-default when recalibrating. An elapsed or missing reset is not offered.
+    /// </summary>
+    /// <param name="window">The session window last rendered, if any.</param>
+    /// <param name="now">The current time.</param>
+    /// <returns>The still-upcoming reset time of the window, or <see langword="null"/> for none.</returns>
+    internal static DateTimeOffset? SelectShownSessionReset(UsageWindowSummary? window, DateTimeOffset now)
+        => window?.ResetsAt is { } shown && shown > now ? shown : null;
 
     /// <summary>
     /// Resolves the usage (cost) limit for one usage window (session or week) from a usage
@@ -315,7 +326,7 @@ internal static class LimitsAnchors
     {
         var defaultText = currentValue is { } v ? v.ToString(SessionResetFormat) : "";
         var promptText = currentValue is not null
-            ? $"[yellow]Session reset time[/] (local '{SessionResetFormat}', e.g. 18:30), Enter to keep:"
+            ? $"[yellow]Session reset time[/] (local '{SessionResetFormat}', e.g. 18:30), Enter to use the shown value:"
             : $"[yellow]Session reset time[/] (local '{SessionResetFormat}', e.g. 18:30), Enter to estimate:";
 
         while (true)
