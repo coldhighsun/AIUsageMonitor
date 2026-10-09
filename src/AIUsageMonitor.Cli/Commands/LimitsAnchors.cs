@@ -1,3 +1,4 @@
+using AIUsageMonitor.Cli.Rendering;
 using AIUsageMonitor.Core.Models;
 using Spectre.Console;
 using System.CommandLine;
@@ -348,7 +349,7 @@ internal static class LimitsAnchors
                 return currentValue;
             }
 
-            AnsiConsole.MarkupLine($"[red]{parseError}[/]");
+            AnsiConsole.MarkupLine(ConsoleMarkup.Red(parseError ?? ""));
         }
     }
 

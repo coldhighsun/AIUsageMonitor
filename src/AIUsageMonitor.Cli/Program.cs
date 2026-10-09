@@ -1,6 +1,7 @@
 ﻿using System.CommandLine;
 using AIUsageMonitor.Cli;
 using AIUsageMonitor.Cli.Commands;
+using AIUsageMonitor.Cli.Rendering;
 using AIUsageMonitor.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -69,6 +70,6 @@ try
 }
 catch (Exception ex)
 {
-    AnsiConsole.MarkupLine($"[red]Fatal error: {ex.Message}[/]");
+    AnsiConsole.MarkupLine(ConsoleMarkup.Red($"Fatal error: {ex.Message}"));
     return 1;
 }

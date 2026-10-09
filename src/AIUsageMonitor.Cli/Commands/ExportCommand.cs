@@ -3,7 +3,9 @@ using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Providers.Claude.Models;
 using AIUsageMonitor.Core.Services;
 using Spectre.Console;
+using System.Buffers;
 using System.CommandLine;
+using System.Globalization;
 using System.Text.Json;
 
 namespace AIUsageMonitor.Cli.Commands;
@@ -13,6 +15,11 @@ namespace AIUsageMonitor.Cli.Commands;
 /// </summary>
 public static class ExportCommand
 {
+    /// <summary>
+    /// The characters that force a CSV field to be quoted.
+    /// </summary>
+    private static readonly SearchValues<char> CsvSpecialChars = SearchValues.Create(",\"\r\n");
+
     /// <summary>
     /// Creates a new instance of the "export" command with the specified <see cref="DataService"/>. The command supports options for specifying the output format (JSON or CSV) and the output file path. If no output file is specified, the data will be printed to standard output.
     /// </summary>
@@ -55,7 +62,7 @@ public static class ExportCommand
             if (output is not null)
             {
                 File.WriteAllText(output, content);
-                AnsiConsole.MarkupLine($"[green]Exported to {output}[/]");
+                AnsiConsole.MarkupLine(ConsoleMarkup.Colored("green", $"Exported to {output}"));
             }
             else
             {
@@ -74,7 +81,7 @@ public static class ExportCommand
     /// <param name="cache">The cached usage statistics to export.</param>
     /// <param name="models">The model distribution data to export.</param>
     /// <returns>A CSV formatted string representing the usage data and model distribution.</returns>
-    private static string ExportCsv(
+    internal static string ExportCsv(
         StatsCache cache,
         List<ModelDistribution> models)
     {
@@ -82,16 +89,32 @@ public static class ExportCommand
         sb.AppendLine("date,messages,sessions,tool_calls");
         foreach (var day in cache.DailyActivity)
         {
-            sb.AppendLine($"{day.Date:yyyy-MM-dd},{day.MessageCount},{day.SessionCount},{day.ToolCallCount}");
+            sb.AppendLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{day.Date:yyyy-MM-dd},{day.MessageCount},{day.SessionCount},{day.ToolCallCount}"));
         }
 
         sb.AppendLine();
         sb.AppendLine("model,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,total_tokens,percentage,estimated_cost");
         foreach (var m in models)
         {
-            sb.AppendLine($"{m.ModelName},{m.InputTokens},{m.OutputTokens},{m.CacheReadTokens},{m.CacheCreationTokens},{m.TotalTokens},{m.Percentage:F1},{m.EstimatedCost:F2}");
+            sb.AppendLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{EscapeCsv(m.ModelName)},{m.InputTokens},{m.OutputTokens},{m.CacheReadTokens},{m.CacheCreationTokens},{m.TotalTokens},{m.Percentage:F1},{m.EstimatedCost:F2}"));
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Quotes a CSV field when it contains a delimiter, quote or line break, doubling embedded quotes.
+    /// </summary>
+    /// <param name="value">The raw field value.</param>
+    /// <returns>The value, quoted if necessary.</returns>
+    private static string EscapeCsv(string value)
+    {
+        return value.AsSpan().IndexOfAny(CsvSpecialChars) >= 0
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
     }
 }

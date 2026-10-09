@@ -2,6 +2,7 @@ using AIUsageMonitor.Cli;
 using AIUsageMonitor.Core.Models;
 using Spectre.Console;
 using Spectre.Console.Rendering;
+using System.Globalization;
 
 namespace AIUsageMonitor.Cli.Rendering;
 
@@ -33,11 +34,11 @@ public static class SpectreRenderer
     {
         var table = BuildStatsTable(
             $"{summary.Date:yyyy-MM-dd} Summary",
-            ("Messages", $"{summary.Messages:N0}"),
-            ("Sessions", $"{summary.Sessions:N0}"),
-            ("Tool Calls", $"{summary.ToolCalls:N0}"),
+            ("Messages", FormatCount(summary.Messages)),
+            ("Sessions", FormatCount(summary.Sessions)),
+            ("Tool Calls", FormatCount(summary.ToolCalls)),
             ("Total Tokens", FormatTokens(summary.TotalTokens)),
-            ("Est. Cost", $"{summary.EstimatedCost:C2}"));
+            ("Est. Cost", FormatCost(summary.EstimatedCost)));
 
         if (summary.TokensByModel.Count == 0)
         {
@@ -48,7 +49,7 @@ public static class SpectreRenderer
         var colorIndex = 0;
         foreach (var (model, tokens) in summary.TokensByModel.OrderByDescending(x => x.Value))
         {
-            chart.AddItem(ShortenModelName(model), tokens, DailyBarColors[colorIndex % DailyBarColors.Length]);
+            chart.AddItem(Markup.Escape(ShortenModelName(model)), tokens, DailyBarColors[colorIndex % DailyBarColors.Length]);
             colorIndex++;
         }
         return new Rows(table, new Rule().RuleStyle("grey"), chart);
@@ -108,14 +109,14 @@ public static class SpectreRenderer
         foreach (var m in models)
         {
             table.AddRow(
-                m.ModelName,
+                Markup.Escape(m.ModelName),
                 FormatTokens(m.InputTokens),
                 FormatTokens(m.OutputTokens),
                 FormatTokens(m.CacheReadTokens),
                 FormatTokens(m.CacheCreationTokens),
                 FormatTokens(m.TotalTokens),
-                $"{m.Percentage:F1}%",
-                $"${m.EstimatedCost:F2}");
+                string.Create(CultureInfo.InvariantCulture, $"{m.Percentage:F1}%"),
+                FormatCost(m.EstimatedCost));
         }
 
         return table;
@@ -130,11 +131,11 @@ public static class SpectreRenderer
     {
         var table = BuildStatsTable(
             $"{summary.From:yyyy-MM-dd} ~ {summary.To:yyyy-MM-dd}",
-            ("Messages", $"{summary.TotalMessages:N0}"),
-            ("Sessions", $"{summary.TotalSessions:N0}"),
-            ("Tool Calls", $"{summary.TotalToolCalls:N0}"),
+            ("Messages", FormatCount(summary.TotalMessages)),
+            ("Sessions", FormatCount(summary.TotalSessions)),
+            ("Tool Calls", FormatCount(summary.TotalToolCalls)),
             ("Total Tokens", FormatTokens(summary.TotalTokens)),
-            ("Est. Cost", $"{summary.EstimatedCost:C2}"));
+            ("Est. Cost", FormatCost(summary.EstimatedCost)));
 
         if (summary.DailyBreakdown.Count == 0)
         {
@@ -160,11 +161,11 @@ public static class SpectreRenderer
         var hours = (int)Math.Round(recent.Window.TotalHours);
         var table = BuildStatsTable(
             $"Last {hours}h Activity",
-            ("Messages", $"{recent.Messages:N0}"),
-            ("Sessions", $"{recent.Sessions:N0}"),
-            ("Tool Calls", $"{recent.ToolCalls:N0}"),
+            ("Messages", FormatCount(recent.Messages)),
+            ("Sessions", FormatCount(recent.Sessions)),
+            ("Tool Calls", FormatCount(recent.ToolCalls)),
             ("Total Tokens", FormatTokens(recent.TotalTokens)),
-            ("Est. Cost", $"{recent.EstimatedCost:C2}"));
+            ("Est. Cost", FormatCost(recent.EstimatedCost)));
 
         if (recent.HourlyTrend.Count == 0)
         {
@@ -190,8 +191,8 @@ public static class SpectreRenderer
     {
         var table = BuildStatsTable(
             "Session Stats",
-            ("Total Sessions", $"{stats.Total:N0}"),
-            ("Avg Messages/Session", $"{stats.AvgMessages:F1}"),
+            ("Total Sessions", FormatCount(stats.Total)),
+            ("Avg Messages/Session", string.Create(CultureInfo.InvariantCulture, $"{stats.AvgMessages:F1}")),
             ("Longest Session", FormatDuration(stats.LongestDuration)));
 
         if (stats.LongestSessionId is null)
@@ -199,7 +200,7 @@ public static class SpectreRenderer
             return table;
         }
 
-        return new Rows(table, new Markup($"[grey]Longest Session ID: {stats.LongestSessionId}[/]"));
+        return new Rows(table, new Markup(ConsoleMarkup.Colored("grey", $"Longest Session ID: {stats.LongestSessionId}")));
     }
 
     /// <summary>
@@ -291,7 +292,7 @@ public static class SpectreRenderer
         {
             var (tokens, messages, cost) = window.WindowStart is null
                 ? ("—", "—", "—")
-                : (FormatTokens(window.TotalTokens), $"{window.Messages:N0}", $"{window.EstimatedCost:C2}");
+                : (FormatTokens(window.TotalTokens), FormatCount(window.Messages), FormatCost(window.EstimatedCost));
 
             var tokenFraction = window.WindowStart is not null && costLimit is { } limit and > 0
                 ? (double)(window.EstimatedCost / limit)
@@ -489,17 +490,42 @@ public static class SpectreRenderer
     }
 
     /// <summary>
+    /// Formats an estimated cost as US dollars. The estimate is always in USD, so the symbol and separators
+    /// must not follow the current culture (which would show e.g. a yen sign for a dollar amount).
+    /// </summary>
+    /// <param name="cost">The estimated cost in USD.</param>
+    /// <returns>The cost formatted like <c>$1,234.50</c>.</returns>
+    internal static string FormatCost(decimal cost)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"${cost:N2}");
+    }
+
+    /// <summary>
     /// Formats a raw token count into a compact string using B/M/K suffixes.
     /// </summary>
     /// <param name="tokens">The token count to format.</param>
     /// <returns>A compact, human-readable token count string.</returns>
-    private static string FormatTokens(long tokens) => tokens switch
+    private static string FormatTokens(long tokens)
     {
-        >= 1_000_000_000 => $"{tokens / 1_000_000_000.0:F2}B",
-        >= 1_000_000 => $"{tokens / 1_000_000.0:F2}M",
-        >= 1_000 => $"{tokens / 1_000.0:F1}K",
-        _ => tokens.ToString("N0")
-    };
+        return tokens switch
+        {
+            >= 1_000_000_000 => string.Create(CultureInfo.InvariantCulture, $"{tokens / 1_000_000_000.0:F2}B"),
+            >= 1_000_000 => string.Create(CultureInfo.InvariantCulture, $"{tokens / 1_000_000.0:F2}M"),
+            >= 1_000 => string.Create(CultureInfo.InvariantCulture, $"{tokens / 1_000.0:F1}K"),
+            _ => FormatCount(tokens)
+        };
+    }
+
+    /// <summary>
+    /// Formats a whole number with thousands separators. Like <see cref="FormatCost"/> and the other numeric
+    /// formatting here, it does not follow the current culture, so one table never mixes two conventions.
+    /// </summary>
+    /// <param name="count">The number to format.</param>
+    /// <returns>The number formatted like <c>1,234</c>.</returns>
+    private static string FormatCount(long count)
+    {
+        return count.ToString("N0", CultureInfo.InvariantCulture);
+    }
 
     /// <summary>
     /// Creates a <see cref="TableColumn"/> with the given header text. Spectre.Console applies
