@@ -20,8 +20,15 @@ namespace AIUsageMonitor.Core.Providers.Claude;
 /// </summary>
 /// <param name="sessionFileCache">The session file cache used to retrieve session messages from session files.</param>
 /// <param name="costCalculator">The cost calculator used to estimate costs based on token usage.</param>
-public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostCalculator costCalculator)
+/// <param name="timeProvider">The clock and local time zone used to place the windows; defaults to the system clock.</param>
+public sealed class SessionBlockBuilder(
+    SessionFileCache sessionFileCache, CostCalculator costCalculator, TimeProvider? timeProvider = null)
 {
+    /// <summary>
+    /// The clock and local time zone used to place the windows.
+    /// </summary>
+    private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
+
     private static readonly TimeSpan SessionWindowDuration = TimeSpan.FromHours(5);
     private static readonly TimeSpan WeekWindowDuration = TimeSpan.FromDays(7);
 
@@ -49,7 +56,7 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
     public UsageWindowSummary BuildCurrentSessionWindow(
         IReadOnlyList<string> sessionFiles, DateTimeOffset? sessionResetAt, IProgress<int>? progress = null)
     {
-        var now = DateTimeOffset.Now;
+        var now = _clock.GetLocalNow();
 
         if (sessionResetAt is { } resetAt && now < resetAt)
         {
@@ -82,14 +89,18 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
             return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
         }
 
-        if (now >= scanStart.Value + SessionWindowDuration)
+        var flooredStart = FloorToTenMinutes(scanStart.Value);
+        var estimatedResetsAt = flooredStart + SessionWindowDuration;
+
+        // Judged against the floored reset time that is displayed, so a window is never reported with a reset in the past.
+        if (now >= estimatedResetsAt)
         {
             return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
         }
 
-        var flooredStart = FloorToTenMinutes(scanStart.Value);
-        var estimatedResetsAt = flooredStart + SessionWindowDuration;
-        return Summarize(messages.Where(m => m.Timestamp >= flooredStart && m.Timestamp < estimatedResetsAt),
+        // Flooring may reach back before a known reset, but activity before it belongs to the previous window.
+        var firstIncluded = sessionResetAt is { } knownReset && knownReset > flooredStart ? knownReset : flooredStart;
+        return Summarize(messages.Where(m => m.Timestamp >= firstIncluded && m.Timestamp < estimatedResetsAt),
             flooredStart, estimatedResetsAt, WindowConfidence.Estimated);
     }
 
@@ -105,9 +116,9 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
     /// </summary>
     /// <param name="timestamp">The timestamp to floor.</param>
     /// <returns>The timestamp floored to the nearest 10-minute mark, in local time.</returns>
-    private static DateTimeOffset FloorToTenMinutes(DateTimeOffset timestamp)
+    private DateTimeOffset FloorToTenMinutes(DateTimeOffset timestamp)
     {
-        var local = timestamp.ToLocalTime();
+        var local = TimeZoneInfo.ConvertTime(timestamp, _clock.LocalTimeZone);
         var flooredMinute = local.Minute / 10 * 10;
         return new DateTimeOffset(
             local.Year, local.Month, local.Day, local.Hour, flooredMinute, 0, local.Offset);
@@ -155,12 +166,11 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
     public UsageWindowSummary BuildWeekWindow(
         IReadOnlyList<string> sessionFiles, (DayOfWeek Day, TimeSpan TimeOfDay)? anchor, IProgress<int>? progress = null)
     {
-        var now = DateTimeOffset.Now;
+        var now = _clock.GetLocalNow();
 
         if (anchor is { } weeklyAnchor)
         {
-            var windowStart = MostRecentAnchorOccurrence(now, weeklyAnchor);
-            var resetsAt = windowStart + WeekWindowDuration;
+            var (windowStart, resetsAt) = GetAnchoredWeek(now, weeklyAnchor, _clock.LocalTimeZone);
             var anchoredMessages = ReadMessages(sessionFiles, progress, windowStart);
             return Summarize(anchoredMessages.Where(m => m.Timestamp >= windowStart && m.Timestamp < resetsAt),
                 windowStart, resetsAt, WindowConfidence.Confirmed);
@@ -171,16 +181,45 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
         return Summarize(inWindow, since, resetsAt: null, WindowConfidence.Unknown);
     }
 
-    private static DateTimeOffset MostRecentAnchorOccurrence(DateTimeOffset now, (DayOfWeek Day, TimeSpan TimeOfDay) anchor)
+    /// <summary>
+    /// Finds the weekly window that contains <paramref name="now"/> when the week resets at a fixed local day and
+    /// time. The start and the reset are both placed on that local wall-clock time, so a daylight-saving change
+    /// inside the week does not shift either of them by an hour.
+    /// </summary>
+    /// <remarks>
+    /// The wall-clock arithmetic uses <see cref="DateTime"/> (kind unspecified) on purpose: a local time without an
+    /// offset cannot be a <see cref="DateTimeOffset"/>, and <see cref="TimeZoneInfo.GetUtcOffset(DateTime)"/> is what
+    /// supplies the offset. Every value that leaves the method is a <see cref="DateTimeOffset"/>.
+    /// </remarks>
+    /// <param name="now">The current time.</param>
+    /// <param name="anchor">The local day of week and time of day at which the week resets.</param>
+    /// <param name="zone">The time zone the anchor is expressed in.</param>
+    /// <returns>The start of the current window and the moment it resets.</returns>
+    internal static (DateTimeOffset Start, DateTimeOffset ResetsAt) GetAnchoredWeek(
+        DateTimeOffset now, (DayOfWeek Day, TimeSpan TimeOfDay) anchor, TimeZoneInfo zone)
     {
-        var candidate = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset) + anchor.TimeOfDay;
-        var dayDelta = ((int)now.DayOfWeek - (int)anchor.Day + 7) % 7;
-        candidate = candidate.AddDays(-dayDelta);
-        if (candidate > now)
+        var localNow = TimeZoneInfo.ConvertTime(now, zone).DateTime;
+        var dayDelta = ((int)localNow.DayOfWeek - (int)anchor.Day + 7) % 7;
+        var startLocal = localNow.Date.AddDays(-dayDelta) + anchor.TimeOfDay;
+        var start = ToZoneOffset(startLocal, zone);
+        if (start > now)
         {
-            candidate = candidate.AddDays(-7);
+            startLocal = startLocal.AddDays(-7);
+            start = ToZoneOffset(startLocal, zone);
         }
-        return candidate;
+
+        return (start, ToZoneOffset(startLocal.AddDays(7), zone));
+    }
+
+    /// <summary>
+    /// Attaches the UTC offset that <paramref name="zone"/> has at a local wall-clock time.
+    /// </summary>
+    /// <param name="local">The local wall-clock time.</param>
+    /// <param name="zone">The time zone the time is expressed in.</param>
+    /// <returns>The same wall-clock time as a <see cref="DateTimeOffset"/>.</returns>
+    private static DateTimeOffset ToZoneOffset(DateTime local, TimeZoneInfo zone)
+    {
+        return new DateTimeOffset(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), zone.GetUtcOffset(local));
     }
 
     /// <summary>
@@ -292,10 +331,16 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
         long totalTokens = 0;
         var tokensByModel = new Dictionary<string, long>();
         var modelUsage = new Dictionary<string, (long Input, long Output, long CacheRead, long CacheCreation5m, long CacheCreation1h)>();
-        var seenAssistantMessageIds = new HashSet<(string?, string?)>();
+        var deduplicator = new TranscriptDeduplicator();
 
         foreach (var (_, msg) in messageList)
         {
+            // A line copied in from the transcript this session was resumed from was already counted there.
+            if (!deduplicator.TryAddLine(msg))
+            {
+                continue;
+            }
+
             messageCount++;
 
             var usage = msg.Message?.Usage;
@@ -305,10 +350,7 @@ public sealed class SessionBlockBuilder(SessionFileCache sessionFileCache, CostC
             }
 
             var model = msg.Message?.Model ?? "unknown";
-            var messageKey = (msg.Message!.Id, msg.RequestId) is (null, null)
-                ? (msg.Uuid, (string?)null)
-                : (msg.Message!.Id, msg.RequestId);
-            if (model == "<synthetic>" || !seenAssistantMessageIds.Add(messageKey))
+            if (model == "<synthetic>" || !deduplicator.TryAddUsage(msg))
             {
                 continue;
             }
