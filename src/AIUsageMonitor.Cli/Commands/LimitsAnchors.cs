@@ -89,7 +89,7 @@ internal static class LimitsAnchors
             saved.WeekCostLimit, weekCostSoFar,
             "[yellow]Weekly usage %[/] (from /usage), e.g. 32, Enter to keep:");
 
-        LimitsSettingsStore.Save(new(sessionResetAt, weekResetRaw, sessionCostLimit, weekCostLimit));
+        LimitsSettingsStore.SaveOrWarn(new(sessionResetAt, weekResetRaw, sessionCostLimit, weekCostLimit));
         return (sessionResetAt, weekResetAt, sessionCostLimit, weekCostLimit);
     }
 
@@ -262,6 +262,12 @@ internal static class LimitsAnchors
             ? weekResetAt
             : (saved.WeekResetAt is not null && TryParseWeekReset(saved.WeekResetAt, out var savedWeekReset) ? savedWeekReset : null);
 
+        if (weekResetArg is null && effectiveWeekReset is null && saved.WeekResetAt is { } unusableSavedWeekReset)
+        {
+            AnsiConsole.MarkupLine(ConsoleMarkup.Colored(
+                "yellow", $"The saved weekly reset '{unusableSavedWeekReset}' is not a valid 'Ddd HH:mm' value (e.g. 'Mon 09:00') and was ignored."));
+        }
+
         var promptedForAnything = false;
 
         // A persisted reset time that has already elapsed is deliberately not prompted for again:
@@ -280,7 +286,7 @@ internal static class LimitsAnchors
             // Token limits are resolved separately (see ResolveTokenLimit), since deriving them needs
             // the tokens counted for the window - which isn't known until after the reset times below
             // are settled. Carry the currently saved values through unchanged.
-            LimitsSettingsStore.Save(saved with
+            LimitsSettingsStore.SaveOrWarn(saved with
             {
                 SessionResetAt = effectiveSessionReset,
                 WeekResetAt = effectiveWeekResetRaw
@@ -325,7 +331,7 @@ internal static class LimitsAnchors
     /// </param>
     private static DateTimeOffset? PromptForSessionReset(DateTimeOffset? currentValue)
     {
-        var defaultText = currentValue is { } v ? v.ToString(SessionResetFormat) : "";
+        var defaultText = currentValue is { } v ? v.ToString(SessionResetFormat, CultureInfo.InvariantCulture) : "";
         var promptText = currentValue is not null
             ? $"[yellow]Session reset time[/] (local '{SessionResetFormat}', e.g. 18:30), Enter to use the shown value:"
             : $"[yellow]Session reset time[/] (local '{SessionResetFormat}', e.g. 18:30), Enter to estimate:";
@@ -423,19 +429,22 @@ internal static class LimitsAnchors
     private static DateTimeOffset ToLocalOffset(DateTime localDateTime)
         => new(localDateTime, TimeZoneInfo.Local.GetUtcOffset(localDateTime));
 
+    /// <summary>
+    /// Parses a day name or abbreviation (e.g. <c>Mon</c>, <c>thu</c>, <c>Sunday</c>). A prefix that fits more than
+    /// one day (such as <c>S</c> or <c>T</c>) is rejected rather than silently resolved to the first of them.
+    /// </summary>
+    /// <param name="value">The text to parse.</param>
+    /// <param name="day">The day it names.</param>
+    /// <returns><see langword="true"/> if the text names exactly one day.</returns>
     private static bool TryParseDayOfWeek(string value, out DayOfWeek day)
     {
-        foreach (var candidate in Enum.GetValues<DayOfWeek>())
-        {
-            if (candidate.ToString().StartsWith(value, StringComparison.OrdinalIgnoreCase))
-            {
-                day = candidate;
-                return true;
-            }
-        }
+        var matches = Enum.GetValues<DayOfWeek>()
+            .Where(candidate => candidate.ToString().StartsWith(value, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
-        day = default;
-        return false;
+        day = matches.Count == 1 ? matches[0] : default;
+
+        return matches.Count == 1;
     }
 
     /// <summary>

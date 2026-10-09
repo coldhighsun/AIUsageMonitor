@@ -1,3 +1,5 @@
+using AIUsageMonitor.Cli.Rendering;
+using Spectre.Console;
 using System.Text.Json;
 
 namespace AIUsageMonitor.Cli;
@@ -35,6 +37,9 @@ public sealed record LimitsSettings(
 /// </summary>
 public static class LimitsSettingsStore
 {
+    /// <summary>
+    /// The location of the settings file.
+    /// </summary>
     private static readonly string FilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "aimon", "limits-settings.json");
 
@@ -45,34 +50,87 @@ public static class LimitsSettingsStore
     /// <returns>The loaded settings.</returns>
     public static LimitsSettings Load()
     {
-        try
-        {
-            if (!File.Exists(FilePath))
-            {
-                return LimitsSettings.Empty;
-            }
-
-            var json = File.ReadAllText(FilePath);
-            return JsonSerializer.Deserialize<LimitsSettings>(json) ?? LimitsSettings.Empty;
-        }
-        catch
-        {
-            return LimitsSettings.Empty;
-        }
+        return Load(FilePath);
     }
 
     /// <summary>
     /// Saves the given <see cref="LimitsSettings"/>, creating the containing directory if needed.
     /// </summary>
     /// <param name="settings">The settings to persist.</param>
-    public static void Save(LimitsSettings settings)
+    /// <returns><see langword="true"/> if the settings were written; <see langword="false"/> if the file could not be written.</returns>
+    public static bool Save(LimitsSettings settings)
     {
-        var dir = Path.GetDirectoryName(FilePath);
-        if (dir is not null)
-        {
-            Directory.CreateDirectory(dir);
-        }
+        return Save(settings, FilePath);
+    }
 
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(settings));
+    /// <summary>
+    /// Saves the settings and, if that fails, tells the user instead of crashing: a settings file that cannot be
+    /// written (read-only profile, full disk) must not take down the command that is running.
+    /// </summary>
+    /// <param name="settings">The settings to persist.</param>
+    public static void SaveOrWarn(LimitsSettings settings)
+    {
+        if (!Save(settings))
+        {
+            AnsiConsole.MarkupLine(ConsoleMarkup.Colored("yellow", $"Could not save your settings to {FilePath}; they will not be remembered."));
+        }
+    }
+
+    /// <summary>
+    /// Loads settings from a specific file.
+    /// </summary>
+    /// <param name="path">The settings file.</param>
+    /// <returns>The loaded settings, or <see cref="LimitsSettings.Empty"/> if the file is missing, unreadable or not valid settings JSON.</returns>
+    internal static LimitsSettings Load(string path)
+    {
+        try
+        {
+            return File.Exists(path)
+                ? JsonSerializer.Deserialize<LimitsSettings>(File.ReadAllText(path)) ?? LimitsSettings.Empty
+                : LimitsSettings.Empty;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return LimitsSettings.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Saves settings to a specific file. The content goes to a temporary file first and is then moved into place,
+    /// so a crash mid-write cannot leave a truncated settings file behind.
+    /// </summary>
+    /// <param name="settings">The settings to persist.</param>
+    /// <param name="path">The settings file.</param>
+    /// <returns><see langword="true"/> if the file was written.</returns>
+    internal static bool Save(LimitsSettings settings, string path)
+    {
+        var tempPath = $"{path}.{Environment.ProcessId}.tmp";
+        try
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir is not null)
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.WriteAllText(tempPath, JsonSerializer.Serialize(settings));
+            File.Move(tempPath, path, overwrite: true);
+
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The move may be what failed, which would otherwise leave the temporary file behind.
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException)
+            {
+                // Best effort: nothing more can be done about a file that cannot be removed either.
+            }
+
+            return false;
+        }
     }
 }
