@@ -13,7 +13,7 @@ using SkiaSharp;
 
 namespace AIUsageMonitor.WPF.ViewModels;
 
-public partial class DashboardViewModel : ObservableObject
+public sealed partial class DashboardViewModel : ObservableObject, IDisposable
 {
     private readonly DataService _dataService;
     private readonly DispatcherTimer _timer;
@@ -92,6 +92,19 @@ public partial class DashboardViewModel : ObservableObject
         _timer.Tick += (_, _) => OnTimerTick();
         _timer.Start();
         LoadData();
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the periodic refresh is still running.
+    /// </summary>
+    internal bool IsRefreshTimerRunning => _timer.IsEnabled;
+
+    /// <summary>
+    /// Stops the periodic refresh, so a view model that is no longer shown does not keep polling the data service.
+    /// </summary>
+    public void Dispose()
+    {
+        _timer.Stop();
     }
 
     /// <summary>
