@@ -119,8 +119,7 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
                         continue;
                     }
 
-                    var tokens = usage.InputTokens + usage.OutputTokens
-                        + usage.CacheReadInputTokens + usage.CacheCreationInputTokens;
+                    var tokens = usage.TotalTokens;
 
                     var modelTokensForDate = dailyModelTokens.TryGetValue(dateOnly, out var mt)
                         ? mt

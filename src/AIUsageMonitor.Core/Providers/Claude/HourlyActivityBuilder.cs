@@ -74,13 +74,7 @@ public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
                 continue;
             }
 
-            var tokens =
-                usage.InputTokens +
-                usage.OutputTokens +
-                usage.CacheReadInputTokens +
-                usage.CacheCreationInputTokens;
-
-            tokensByHour[ts.LocalDateTime.Hour] += tokens;
+            tokensByHour[ts.LocalDateTime.Hour] += usage.TotalTokens;
         }
     }
 }

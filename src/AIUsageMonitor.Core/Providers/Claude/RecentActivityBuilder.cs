@@ -37,7 +37,7 @@ public sealed class RecentActivityBuilder(
         long totalTokens = 0;
         var sessionIds = new HashSet<string>();
         var tokensByModel = new Dictionary<string, long>();
-        var modelUsage = new Dictionary<string, (long Input, long Output, long CacheRead, long CacheCreation5m, long CacheCreation1h)>();
+        var modelUsage = new Dictionary<string, ModelTokenTotals>();
         var hourBuckets = new Dictionary<DateTimeOffset, (int Messages, long Tokens)>();
         var deduplicator = new TranscriptDeduplicator();
 
@@ -49,9 +49,7 @@ public sealed class RecentActivityBuilder(
             ProcessFile(file);
         }
 
-        var estimatedCost = modelUsage.Sum(kvp =>
-            costCalculator.EstimateCost(kvp.Key, kvp.Value.Input, kvp.Value.Output, kvp.Value.CacheRead,
-                kvp.Value.CacheCreation5m, kvp.Value.CacheCreation1h));
+        var estimatedCost = ModelTokenTotals.EstimateCost(modelUsage, costCalculator);
 
         var firstHour = StartOfLocalHour(since, zone);
         var lastHour = StartOfLocalHour(now, zone);
@@ -122,23 +120,10 @@ public sealed class RecentActivityBuilder(
                     var model = msg.Message?.Model ?? "unknown";
                     if (model != "<synthetic>" && deduplicator.TryAddUsage(msg))
                     {
-                        var tokens = usage.InputTokens + usage.OutputTokens
-                                                       + usage.CacheReadInputTokens + usage.CacheCreationInputTokens;
+                        var tokens = ModelTokenTotals.Record(modelUsage, model, usage);
                         totalTokens += tokens;
                         tokensByModel[model] = tokensByModel.GetValueOrDefault(model) + tokens;
                         bucket.Tokens += tokens;
-
-                        var (cacheCreation5m, cacheCreation1h) = usage.CacheCreation is { } detail
-                            ? (detail.Ephemeral5mInputTokens, detail.Ephemeral1hInputTokens)
-                            : (usage.CacheCreationInputTokens, 0L);
-
-                        var entry = modelUsage.GetValueOrDefault(model);
-                        modelUsage[model] = (
-                            entry.Input + usage.InputTokens,
-                            entry.Output + usage.OutputTokens,
-                            entry.CacheRead + usage.CacheReadInputTokens,
-                            entry.CacheCreation5m + cacheCreation5m,
-                            entry.CacheCreation1h + cacheCreation1h);
                     }
                 }
 
