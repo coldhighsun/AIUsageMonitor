@@ -1,4 +1,4 @@
-using AIUsageMonitor.Cli;
+﻿using AIUsageMonitor.Cli;
 using AIUsageMonitor.Core.Models;
 using Spectre.Console;
 using Spectre.Console.Rendering;
@@ -79,6 +79,12 @@ public static class SpectreRenderer
     /// <returns>An <see cref="IRenderable"/> bar chart of tokens by hour.</returns>
     public static IRenderable BuildHourlyTokenChart(List<HourBucket> buckets)
     {
+        // Defensive only: the providers always emit at least the current hour's bucket, but a BarChart with no items throws when rendered.
+        if (buckets.Count == 0)
+        {
+            return new Markup("[grey]No hourly activity yet.[/]");
+        }
+
         var chart = new BarChart().Label("[bold]Tokens by Hour[/]").Width(80).UseValueFormatter(v => FormatTokens((long)v));
         var colorIndex = 0;
         foreach (var bucket in buckets)

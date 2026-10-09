@@ -1,4 +1,4 @@
-using AIUsageMonitor.Cli.Rendering;
+﻿using AIUsageMonitor.Cli.Rendering;
 using AIUsageMonitor.Core.Models;
 using System.Globalization;
 using Xunit;
@@ -147,5 +147,29 @@ public class SpectreRendererTests
         var rendered = ConsoleMarkupTests.RenderPlain(SpectreRenderer.BuildSessionStats(stats));
 
         Assert.Contains("id[1]", rendered);
+    }
+
+    /// <summary>
+    /// Verifies that an empty hourly trend renders a note instead of an empty chart, which would throw when rendered.
+    /// </summary>
+    [Fact]
+    public void BuildHourlyTokenChart_NoBuckets_RendersNoteInsteadOfThrowing()
+    {
+        var rendered = ConsoleMarkupTests.RenderPlain(SpectreRenderer.BuildHourlyTokenChart([]));
+
+        Assert.Contains("No hourly activity yet.", rendered);
+    }
+
+    /// <summary>
+    /// Verifies that hourly buckets are rendered as a chart.
+    /// </summary>
+    [Fact]
+    public void BuildHourlyTokenChart_WithBuckets_RendersTheChart()
+    {
+        var rendered = ConsoleMarkupTests.RenderPlain(
+            SpectreRenderer.BuildHourlyTokenChart([new(new DateTimeOffset(2026, 10, 9, 9, 0, 0, TimeSpan.Zero), 3, 1500)]));
+
+        Assert.Contains("Tokens by Hour", rendered);
+        Assert.Contains("09:00", rendered);
     }
 }
