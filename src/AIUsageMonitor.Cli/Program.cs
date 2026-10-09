@@ -56,7 +56,8 @@ try
     // show while it's running, not after it exits) - every other command starts the check here so it
     // runs alongside the command, and prints the notice after the command's own output.
     using var updateCheckCts = new CancellationTokenSource();
-    var updateCheck = isWatch ? null : UpdateNotice.StartCheck(updateCheckCts.Token, updateCheckLogger);
+    // --json is for scripts, which shouldn't pay a network request or the wait for it on every call.
+    var updateCheck = UpdateNotice.ShouldCheckAfterCommand(isWatch, JsonOutput.IsRequested(parseResult)) ? UpdateNotice.StartCheck(updateCheckCts.Token, updateCheckLogger) : null;
 
     var exitCode = await parseResult.InvokeAsync();
 

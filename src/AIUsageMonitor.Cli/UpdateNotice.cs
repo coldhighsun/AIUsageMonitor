@@ -11,6 +11,17 @@ namespace AIUsageMonitor.Cli;
 public static class UpdateNotice
 {
     /// <summary>
+    /// Decides whether the update check should run alongside (and be reported after) the invoked command.
+    /// </summary>
+    /// <param name="isWatch">Whether the command is <c>watch</c>, which runs its own check up front.</param>
+    /// <param name="jsonRequested">Whether the command was given <c>--json</c>, which is meant for scripts.</param>
+    /// <returns><see langword="false"/> for <c>watch</c> and for <c>--json</c> runs.</returns>
+    internal static bool ShouldCheckAfterCommand(bool isWatch, bool jsonRequested)
+    {
+        return !isWatch && !jsonRequested;
+    }
+
+    /// <summary>
     /// Starts an update check on a background thread so it runs alongside the command rather than after it.
     /// </summary>
     /// <param name="cancellationToken">A token that abandons the check (e.g. once the command finished and the wait ran out).</param>
