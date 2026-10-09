@@ -68,6 +68,13 @@ Commands:
 - `hours` — usage broken down by hour of day
 - `export` — export raw analytics; supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
 
+Report options (`today`, `week`, `month`, `models`, `hours`, `sessions`):
+
+- `--json` — print the report as JSON (no progress bar or table; the update check is skipped) for scripts
+- `today --date yyyy-MM-dd` — show another day
+- `week` / `month`: `--from yyyy-MM-dd [--to yyyy-MM-dd]` or `--last <days>`; `month` also takes `--month yyyy-MM`. Ranges are limited to 3650 days and years 2000-2999; invalid values print an error to stderr and exit with code 1
+- `models --model <text>` — only models whose name contains the text (percentages stay relative to all models). If nothing matches, the table view prints `No model matches '<text>'.` to stderr and exits 0, and `--json` prints `[]`
+
 `watch`'s default view, `limits`, approximates the "Current Session" (rolling 5-hour window) and "This Week" panels from Claude's own account UI, each with a **Time Progress** bar (how far the window has elapsed, colored green/orange when token usage is pacing notably behind/ahead of it) and a **Token Progress** bar (how close it is to its budget). For the session window, a pace hint also appears below the table when token usage is running noticeably ahead of or behind elapsed time, suggesting you slow down or use more freely.
 
 The real reset times and token limits live on your Anthropic account, not locally, so pin them once:
@@ -84,7 +91,7 @@ Press `r` while `watch` is running to re-enter any of the four (Enter keeps the 
 
 ### Update checks
 
-Every command checks GitHub for a newer release once after it finishes (`watch` checks once before entering its refresh loop and keeps the notice pinned to the bottom of the view for the whole session). If a newer version is available, a one-line notice with the new version and a link to the release is printed — this never blocks or fails the command, and no data is sent beyond the standard GitHub API request for the latest release.
+Every command checks GitHub for a newer release once after it finishes (`watch` checks once before entering its refresh loop and keeps the notice pinned to the bottom of the view for the whole session). Runs with `--json` skip the check entirely, so scripted calls make no network request and never wait for one; the notice itself is written to stderr. If a newer version is available, a one-line notice with the new version and a link to the release is printed — this never blocks or fails the command, and no data is sent beyond the standard GitHub API request for the latest release.
 
 ### WPF dashboard (Windows only)
 
@@ -166,6 +173,13 @@ aimon <命令>
 - `hours` — 按小时统计用量
 - `export` — 导出原始分析数据;支持 `--format json|csv` 与 `--output <path>`(默认输出到标准输出,格式为 JSON)
 
+报表选项(`today`、`week`、`month`、`models`、`hours`、`sessions`):
+
+- `--json` — 以 JSON 输出(不显示进度条和表格,并跳过更新检查),便于脚本处理
+- `today --date yyyy-MM-dd` — 查看指定某天
+- `week` / `month`:`--from yyyy-MM-dd [--to yyyy-MM-dd]` 或 `--last <天数>`;`month` 另支持 `--month yyyy-MM`。范围最长 3650 天,年份限定在 2000–2999;值无效时向 stderr 输出错误并以退出码 1 结束
+- `models --model <文本>` — 只显示名称包含该文本的模型(占比仍相对于全部模型)。若没有匹配项,表格模式会向 stderr 输出 `No model matches '<文本>'.` 并以退出码 0 结束,`--json` 则输出 `[]`
+
 `watch` 的默认视图 `limits` 近似展示 Claude 官方账户界面中的 "Current Session"(滚动 5 小时窗口)和 "This Week" 面板,各自附带 **Time Progress**(窗口已过去的时间比例,当 token 消耗明显落后/领先于时间进度时会分别显示绿色/橙色)与 **Token Progress**(用量占预算的比例)两条进度条。针对当前会话窗口,当 token 消耗进度明显快于或慢于时间进度时,表格下方还会出现一条节奏提示,建议你放慢或可以放心多用。
 
 真实的重置时间和 token 上限存储在 Anthropic 账号侧,本地无法读取,建议各录入一次:
@@ -182,7 +196,7 @@ aimon <命令>
 
 ### 更新检查
 
-每个命令执行结束后都会检查一次 GitHub 上是否有新版本发布(`watch` 会在进入刷新循环前检查一次,并在整个运行期间将提示固定显示在视图底部)。如果有新版本,会打印一行提示,附带新版本号和发布页链接——这不会阻塞或影响命令本身的执行,除了标准的 GitHub 最新发布查询请求外不会发送任何其他数据。
+每个命令执行结束后都会检查一次 GitHub 上是否有新版本发布(`watch` 会在进入刷新循环前检查一次,并在整个运行期间将提示固定显示在视图底部)。带 `--json` 的调用会完全跳过该检查,因此脚本调用不会发起网络请求,也不会为此等待;提示本身输出到 stderr。如果有新版本,会打印一行提示,附带新版本号和发布页链接——这不会阻塞或影响命令本身的执行,除了标准的 GitHub 最新发布查询请求外不会发送任何其他数据。
 
 ### WPF 仪表盘(仅 Windows)
 
