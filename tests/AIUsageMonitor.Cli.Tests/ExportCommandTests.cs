@@ -1,13 +1,14 @@
-using AIUsageMonitor.Cli.Commands;
+﻿using AIUsageMonitor.Cli.Commands;
 using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Providers.Claude.Models;
+using System.CommandLine;
 using System.Globalization;
 using Xunit;
 
 namespace AIUsageMonitor.Cli.Tests;
 
 /// <summary>
-/// Tests for the CSV output of <see cref="ExportCommand"/>.
+/// Tests for the CSV output and the format validation of <see cref="ExportCommand"/>.
 /// </summary>
 public class ExportCommandTests
 {
@@ -51,5 +52,22 @@ public class ExportCommandTests
         var csv = ExportCommand.ExportCsv(cache, models);
 
         Assert.Contains("\"odd,\"\"name\"\"\",1,2,3,4,10,100.0,0.00", csv);
+    }
+
+    /// <summary>
+    /// Verifies that the export command rejects an unknown format and accepts json and csv in any case.
+    /// </summary>
+    [Theory]
+    [InlineData("xml", false)]
+    [InlineData("", false)]
+    [InlineData("json", true)]
+    [InlineData("CSV", true)]
+    public void Create_FormatOption_ValidatesFormat(string format, bool valid)
+    {
+        var export = ExportCommand.Create(null!);
+
+        var errors = export.Parse(["--format", format]).Errors;
+
+        Assert.Equal(valid, errors.Count == 0);
     }
 }
