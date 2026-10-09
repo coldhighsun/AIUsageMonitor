@@ -184,25 +184,103 @@ public sealed record SessionStats(
     string? LongestSessionId);
 
 /// <summary>
-/// Represents a summary of usage activity for a single session.
+/// Represents the usage of one session within a date range. A session that started before the range shows only
+/// what happened inside it, and a session resumed into a new transcript is one session however many files it spans.
 /// </summary>
 /// <param name="SessionId">The unique identifier of the session.</param>
-/// <param name="Project">The name of the project associated with the session, or <see langword="null"/> if unavailable.</param>
-/// <param name="StartTime">The timestamp when the session started.</param>
-/// <param name="EndTime">The timestamp when the session ended.</param>
-/// <param name="Duration">The total duration of the session.</param>
-/// <param name="MessageCount">The total number of messages sent during the session.</param>
-/// <param name="TotalTokens">The total number of tokens used during the session.</param>
+/// <param name="ProjectKey">The name of the folder under <c>projects/</c> that holds the session's earliest counted line.</param>
+/// <param name="ProjectPath">The working directory of the session's earliest counted line that has one, or <see langword="null"/> if unavailable.</param>
+/// <param name="Start">The time of the first counted message.</param>
+/// <param name="End">The time of the last counted message.</param>
+/// <param name="Messages">The number of counted transcript lines; a streamed response is written as several lines, so this is not the number of turns.</param>
+/// <param name="ToolCalls">The number of tool calls.</param>
+/// <param name="TotalTokens">The total tokens used: input, output, cache reads and cache writes.</param>
+/// <param name="InputTokens">The input tokens used.</param>
+/// <param name="OutputTokens">The output tokens used.</param>
+/// <param name="CacheReadTokens">The tokens read from the prompt cache.</param>
+/// <param name="CacheWriteTokens">The tokens written to the prompt cache.</param>
 /// <param name="TokensByModel">A mapping of model name to the number of tokens consumed by that model.</param>
-public sealed record SessionSummary(
+/// <param name="EstimatedCost">The estimated cost of the session, in US dollars.</param>
+public sealed record SessionUsage(
     string SessionId,
-    string? Project,
-    DateTimeOffset StartTime,
-    DateTimeOffset EndTime,
-    TimeSpan Duration,
-    int MessageCount,
+    string ProjectKey,
+    string? ProjectPath,
+    DateTimeOffset Start,
+    DateTimeOffset End,
+    int Messages,
+    int ToolCalls,
     long TotalTokens,
-    Dictionary<string, long> TokensByModel);
+    long InputTokens,
+    long OutputTokens,
+    long CacheReadTokens,
+    long CacheWriteTokens,
+    Dictionary<string, long> TokensByModel,
+    decimal EstimatedCost)
+{
+    /// <summary>
+    /// Gets the wall-clock time between the first and last counted message, idle gaps included.
+    /// </summary>
+    public TimeSpan Duration => End - Start;
+}
+
+/// <summary>
+/// Represents the usage of one project within a date range.
+/// </summary>
+/// <param name="ProjectKey">The name of the folder under <c>projects/</c>.</param>
+/// <param name="ProjectPath">The working directory of the project's earliest session that has one, or <see langword="null"/> if unavailable.</param>
+/// <param name="Sessions">The number of sessions.</param>
+/// <param name="Messages">The number of counted transcript lines.</param>
+/// <param name="ToolCalls">The number of tool calls.</param>
+/// <param name="TotalTokens">The total tokens used.</param>
+/// <param name="TokensByModel">A mapping of model name to the number of tokens consumed by that model.</param>
+/// <param name="EstimatedCost">The estimated cost, in US dollars.</param>
+/// <param name="FirstActivity">The time of the project's first counted message.</param>
+/// <param name="LastActivity">The time of the project's last counted message.</param>
+public sealed record ProjectUsage(
+    string ProjectKey,
+    string? ProjectPath,
+    int Sessions,
+    int Messages,
+    int ToolCalls,
+    long TotalTokens,
+    Dictionary<string, long> TokensByModel,
+    decimal EstimatedCost,
+    DateTimeOffset FirstActivity,
+    DateTimeOffset LastActivity)
+{
+    /// <summary>
+    /// Groups sessions by project folder (case-insensitively) and sums their usage.
+    /// </summary>
+    /// <param name="sessions">The sessions to group.</param>
+    /// <returns>One entry per project folder, in no particular order.</returns>
+    public static List<ProjectUsage> FromSessions(IEnumerable<SessionUsage> sessions)
+    {
+        return sessions
+            .GroupBy(s => s.ProjectKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var byStart = group.OrderBy(s => s.Start).ThenBy(s => s.SessionId, StringComparer.Ordinal).ToList();
+                var tokensByModel = new Dictionary<string, long>();
+                foreach (var (model, tokens) in byStart.SelectMany(s => s.TokensByModel))
+                {
+                    tokensByModel[model] = tokensByModel.GetValueOrDefault(model) + tokens;
+                }
+
+                return new ProjectUsage(
+                    byStart[0].ProjectKey,
+                    byStart.Select(s => s.ProjectPath).FirstOrDefault(p => p is not null),
+                    byStart.Count,
+                    byStart.Sum(s => s.Messages),
+                    byStart.Sum(s => s.ToolCalls),
+                    byStart.Sum(s => s.TotalTokens),
+                    tokensByModel,
+                    byStart.Sum(s => s.EstimatedCost),
+                    byStart[0].Start,
+                    byStart.Max(s => s.End));
+            })
+            .ToList();
+    }
+}
 
 /// <summary>
 /// Represents the full data payload produced when exporting usage data.

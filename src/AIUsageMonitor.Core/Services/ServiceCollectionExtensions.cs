@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<RecentActivityBuilder>();
         services.AddSingleton<HourlyActivityBuilder>();
         services.AddSingleton<SessionBlockBuilder>();
+        services.AddSingleton<SessionUsageBuilder>();
         services.AddSingleton<HistoryParser>();
         services.AddSingleton<ClaudeUsageProvider>();
         services.AddSingleton<IUsageProvider>(sp => sp.GetRequiredService<ClaudeUsageProvider>());

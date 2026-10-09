@@ -62,6 +62,7 @@ public sealed class DataServiceWatcherTests : IDisposable
             new RecentActivityBuilder(_sessionFileCache, costCalculator),
             new HourlyActivityBuilder(_sessionFileCache),
             new SessionBlockBuilder(_sessionFileCache, costCalculator),
+            new SessionUsageBuilder(_sessionFileCache, costCalculator),
             tracker,
             NullLogger<ClaudeUsageProvider>.Instance);
 

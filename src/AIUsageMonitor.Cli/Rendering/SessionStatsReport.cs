@@ -22,7 +22,7 @@ internal sealed record SessionStatsReport(
     /// </summary>
     /// <param name="stats">The statistics to convert.</param>
     /// <returns>The JSON-shaped report.</returns>
-    public static SessionStatsReport From(SessionStats stats)
+    public static SessionStatsReport Create(SessionStats stats)
     {
         return new SessionStatsReport(
             stats.Total,

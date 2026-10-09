@@ -39,6 +39,7 @@ try
     rootCommand.Subcommands.Add(MonthCommand.Create(dataService));
     rootCommand.Subcommands.Add(ModelsCommand.Create(dataService));
     rootCommand.Subcommands.Add(SessionsCommand.Create(dataService));
+    rootCommand.Subcommands.Add(ProjectsCommand.Create(dataService));
     rootCommand.Subcommands.Add(HoursCommand.Create(dataService));
     rootCommand.Subcommands.Add(ExportCommand.Create(dataService));
     var watchCommand = WatchCommand.Create(dataService, updateCheckLogger);

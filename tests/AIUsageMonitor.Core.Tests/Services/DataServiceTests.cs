@@ -200,6 +200,49 @@ public class DataServiceTests : IDisposable
         Assert.Null(exception);
     }
 
+    /// <summary>
+    /// Verifies that session usage is requested from the provider with the days and model, and filtered by project.
+    /// </summary>
+    [Fact]
+    public void GetSessionUsage_ProjectFilter_KeepsMatchingSessionsOnly()
+    {
+        _provider.SessionUsage = [SessionOf("s1", "C--repos-app", "C:/repos/app"), SessionOf("s2", "C--repos-other", "C:/repos/other")];
+        using var sut = CreateSut();
+
+        var sessions = sut.GetSessionUsage(new(2026, 8, 1), new(2026, 8, 31), "opus", "repos/app");
+
+        Assert.Equal("s1", Assert.Single(sessions).SessionId);
+        Assert.Equal((new DateOnly(2026, 8, 1), new DateOnly(2026, 8, 31), "opus"), _provider.LastSessionUsageRequest);
+    }
+
+    /// <summary>
+    /// Verifies that project usage groups the sessions that pass the filter.
+    /// </summary>
+    [Fact]
+    public void GetProjectUsage_SessionsOfTwoProjects_GroupsThem()
+    {
+        _provider.SessionUsage = [SessionOf("s1", "p1", null), SessionOf("s2", "p1", null), SessionOf("s3", "p2", null)];
+        using var sut = CreateSut();
+
+        var projects = sut.GetProjectUsage(new(2026, 8, 1), new(2026, 8, 31));
+
+        Assert.Equal(2, projects.Count);
+        Assert.Equal(2, projects.Single(p => p.ProjectKey == "p1").Sessions);
+    }
+
+    /// <summary>
+    /// Creates a session with only the project fields set.
+    /// </summary>
+    /// <param name="id">The session id.</param>
+    /// <param name="key">The project folder.</param>
+    /// <param name="path">The working directory, if any.</param>
+    /// <returns>The session.</returns>
+    private static SessionUsage SessionOf(string id, string key, string? path)
+    {
+        var start = new DateTimeOffset(2026, 8, 2, 10, 0, 0, TimeSpan.Zero);
+        return new SessionUsage(id, key, path, start, start.AddMinutes(1), 1, 0, 10, 10, 0, 0, 0, [], 0m);
+    }
+
     private sealed class FakeUsageProvider : IUsageProvider
     {
         public int StatsCacheCallCount { get; private set; }
@@ -214,6 +257,24 @@ public class DataServiceTests : IDisposable
         public (DayOfWeek Day, TimeSpan TimeOfDay)? LastWeekAnchor { get; private set; }
 
         public string Name => "Fake";
+
+        /// <summary>
+        /// Gets or sets the sessions returned to callers.
+        /// </summary>
+        public List<SessionUsage> SessionUsage { get; set; } = [];
+
+        /// <summary>
+        /// Gets the days and model filter of the most recent session-usage request.
+        /// </summary>
+        public (DateOnly From, DateOnly To, string? Model)? LastSessionUsageRequest { get; private set; }
+
+
+        /// <inheritdoc />
+        public List<SessionUsage> GetSessionUsage(DateOnly from, DateOnly to, string? model, IProgress<int>? progress = null)
+        {
+            LastSessionUsageRequest = (from, to, model);
+            return SessionUsage;
+        }
 
         public List<HourlyActivity> GetHourlyActivity(IProgress<int>? progress = null) => HourlyActivity;
 
