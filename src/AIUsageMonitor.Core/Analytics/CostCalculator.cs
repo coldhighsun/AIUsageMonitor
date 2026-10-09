@@ -9,27 +9,34 @@ namespace AIUsageMonitor.Core.Analytics;
 public sealed class CostCalculator
 {
     /// <summary>
-    /// Pricing per million tokens (input, output, cache read, cache creation) keyed by
-    /// a substring that identifies the model name.
+    /// Pricing per million tokens (input, output, cache read, cache creation) keyed by a substring that identifies
+    /// the model name. Kept as an ordered array, not a dictionary, because the order is part of the meaning.
     /// </summary>
-    private static readonly Dictionary<string, ModelPricing> PricingTable = new()
-    {
+    private static readonly (string Key, ModelPricing Pricing)[] PricingTable =
+    [
         // Order matters: more specific keys must precede the shorter keys they contain
         // (e.g. "opus-5-5" before "opus-5"), because the first substring match wins.
-        ["fable-5-1"] = new(10m, 50m, 0.25m, 12.5m, 20m),
-        ["mythos-5-1"] = new(10m, 50m, 0.25m, 12.5m, 20m),
-        ["fable-5"] = new(10m, 50m, 1m, 12.5m, 20m),
-        ["mythos-5"] = new(10m, 50m, 1m, 12.5m, 20m),
-        ["opus-5-5"] = new(4m, 20m, 0.20m, 5m, 8m),
-        ["opus-5"] = new(5m, 25m, 0.5m, 6.25m, 10m),
-        ["opus-4-1"] = new(15m, 75m, 1.5m, 18.75m, 30m),
-        ["opus-4-2025"] = new(15m, 75m, 1.5m, 18.75m, 30m),
-        ["opus-4"] = new(5m, 25m, 0.5m, 6.25m, 10m),
-        ["sonnet-5"] = new(2m, 10m, 0.20m, 2.5m, 4m),
-        ["sonnet-4"] = new(3m, 15m, 0.30m, 3.75m, 6m),
-        ["haiku-4"] = new(1m, 5m, 0.10m, 1.25m, 2m),
-        ["haiku-3-5"] = new(0.8m, 4m, 0.08m, 1m, 1.6m),
-    };
+        ("fable-5-1", new(10m, 50m, 0.25m, 12.5m, 20m)),
+        ("mythos-5-1", new(10m, 50m, 0.25m, 12.5m, 20m)),
+        ("fable-5", new(10m, 50m, 1m, 12.5m, 20m)),
+        ("mythos-5", new(10m, 50m, 1m, 12.5m, 20m)),
+        ("opus-5-5", new(4m, 20m, 0.20m, 5m, 8m)),
+        ("opus-5", new(5m, 25m, 0.5m, 6.25m, 10m)),
+        ("opus-4-1", new(15m, 75m, 1.5m, 18.75m, 30m)),
+        ("opus-4-2025", new(15m, 75m, 1.5m, 18.75m, 30m)),
+        ("opus-4", new(5m, 25m, 0.5m, 6.25m, 10m)),
+        ("sonnet-5", new(2m, 10m, 0.20m, 2.5m, 4m)),
+        ("sonnet-4", new(3m, 15m, 0.30m, 3.75m, 6m)),
+        ("haiku-4", new(1m, 5m, 0.10m, 1.25m, 2m)),
+        ("haiku-3-5", new(0.8m, 4m, 0.08m, 1m, 1.6m)),
+
+        // Claude 3 models put the version before the family name (claude-3-5-sonnet-...), so the keys above never match them.
+        ("3-7-sonnet", new(3m, 15m, 0.30m, 3.75m, 6m)),
+        ("3-5-sonnet", new(3m, 15m, 0.30m, 3.75m, 6m)),
+        ("3-5-haiku", new(0.8m, 4m, 0.08m, 1m, 1.6m)),
+        ("3-opus", new(15m, 75m, 1.5m, 18.75m, 30m)),
+        ("3-haiku", new(0.25m, 1.25m, 0.03m, 0.30m, 0.50m)),
+    ];
 
     /// <summary>
     /// Estimates the cost in USD for a request based on raw token counts, using the blended

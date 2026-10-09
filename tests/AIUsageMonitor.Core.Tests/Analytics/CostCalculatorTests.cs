@@ -117,4 +117,22 @@ public class CostCalculatorTests
 
         Assert.Equal(blended, split);
     }
+
+    /// <summary>
+    /// Verifies that Claude 3 models, whose names put the version before the family, are priced rather than costed at zero.
+    /// </summary>
+    /// <param name="model">The model name as it appears in a transcript.</param>
+    /// <param name="expectedInputPerMTok">The expected input price per million tokens.</param>
+    [Theory]
+    [InlineData("claude-3-7-sonnet-20250219", 3)]
+    [InlineData("claude-3-5-sonnet-20241022", 3)]
+    [InlineData("claude-3-5-haiku-20241022", 0.8)]
+    [InlineData("claude-3-opus-20240229", 15)]
+    [InlineData("claude-3-haiku-20240307", 0.25)]
+    public void EstimateCost_ClaudeThreeModelName_UsesThatModelsInputPrice(string model, double expectedInputPerMTok)
+    {
+        var cost = _sut.EstimateCost(model, inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0);
+
+        Assert.Equal((decimal)expectedInputPerMTok, cost);
+    }
 }
