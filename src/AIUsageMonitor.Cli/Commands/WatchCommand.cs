@@ -100,7 +100,7 @@ public static class WatchCommand
                     return 1;
                 }
 
-                LimitsSettingsStore.Save(saved with
+                LimitsSettingsStore.SaveOrWarn(saved with
                 {
                     SessionCostLimit = effectiveSessionTokenLimit,
                     WeekCostLimit = effectiveWeekTokenLimit
