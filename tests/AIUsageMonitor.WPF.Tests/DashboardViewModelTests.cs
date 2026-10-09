@@ -238,6 +238,9 @@ public class DashboardViewModelTests : IDisposable
         public string Name => "Fake";
 
         /// <inheritdoc />
+        public List<SessionUsage> GetSessionUsage(DateOnly from, DateOnly to, string? model, IProgress<int>? progress = null) => [];
+
+        /// <inheritdoc />
         public List<HourlyActivity> GetHourlyActivity(IProgress<int>? progress = null)
         {
             HourlyCallCount++;

@@ -10,7 +10,13 @@ namespace AIUsageMonitor.Cli.Commands;
 /// <param name="To">The last day of a range (<c>yyyy-MM-dd</c>), or <see langword="null"/> when not given.</param>
 /// <param name="Last">The number of days ending today, as typed, or <see langword="null"/> when not given.</param>
 /// <param name="Month">A calendar month (<c>yyyy-MM</c>), or <see langword="null"/> when not given.</param>
-internal sealed record DateRangeRequest(string? Date = null, string? From = null, string? To = null, int? Last = null, string? Month = null);
+internal sealed record DateRangeRequest(string? Date = null, string? From = null, string? To = null, int? Last = null, string? Month = null)
+{
+    /// <summary>
+    /// Gets a value indicating whether any date argument was given.
+    /// </summary>
+    public bool HasAny => Date is not null || From is not null || To is not null || Last is not null || Month is not null;
+}
 
 /// <summary>
 /// Defines the date-range options shared by the report commands and turns them into a concrete date range.

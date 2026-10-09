@@ -161,69 +161,6 @@ public sealed class SessionParser(ILogger<SessionParser> logger)
     }
 
     /// <summary>
-    /// Parses a file containing session messages and returns a summary of the session, including the session ID, project, start and end times, duration, message count, total tokens used, and tokens used by model.
-    /// </summary>
-    /// <param name="filePath">The path to the file containing the session messages.</param>
-    /// <returns>A <see cref="SessionSummary"/> object containing the summary of the session, or <c>null</c> if no messages were found.</returns>
-    public SessionSummary? ParseSessionSummary(string filePath)
-    {
-        var messages = ParseFile(filePath).ToList();
-        if (messages.Count == 0)
-        {
-            return null;
-        }
-
-        var sessionId = messages.FirstOrDefault(m => m.SessionId is not null)?.SessionId
-            ?? Path.GetFileNameWithoutExtension(filePath);
-        var project = messages.FirstOrDefault(m => m.Cwd is not null)?.Cwd;
-
-        var timestamps = messages
-            .Where(m => m.Timestamp is not null)
-            .Select(m => m.Timestamp!.Value)
-            .OrderBy(t => t)
-            .ToList();
-
-        if (timestamps.Count == 0)
-        {
-            return null;
-        }
-
-        var startTime = timestamps[0];
-        var endTime = timestamps[^1];
-
-        var assistantMessages = messages
-            .Where(m => m is { Type: "assistant", Message.Usage: not null })
-            .DistinctBy(m => (m.Message!.Id, m.RequestId) is (null, null)
-                ? (object)m.Uuid!
-                : (m.Message!.Id, m.RequestId))
-            .ToList();
-
-        long totalTokens = 0;
-        var tokensByModel = new Dictionary<string, long>();
-
-        foreach (var msg in assistantMessages)
-        {
-            var usage = msg.Message!.Usage!;
-            var msgTokens = usage.InputTokens + usage.OutputTokens
-                + usage.CacheReadInputTokens + usage.CacheCreationInputTokens;
-            totalTokens += msgTokens;
-
-            var model = msg.Message.Model ?? "unknown";
-            tokensByModel[model] = tokensByModel.GetValueOrDefault(model) + msgTokens;
-        }
-
-        return new(
-            sessionId,
-            project,
-            startTime,
-            endTime,
-            endTime - startTime,
-            messages.Count(m => m.Type is "user" or "assistant"),
-            totalTokens,
-            tokensByModel);
-    }
-
-    /// <summary>
     /// Opens the given file for shared reading, retrying briefly if another process (e.g. the Claude CLI)
     /// currently has an exclusive lock on it.
     /// </summary>

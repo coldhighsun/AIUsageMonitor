@@ -242,6 +242,38 @@ public sealed class DataService : IDisposable
     }
 
     /// <summary>
+    /// Gets per-session usage for a range of local days, read fresh from the session transcripts.
+    /// </summary>
+    /// <param name="from">The first local day to include.</param>
+    /// <param name="to">The last local day to include.</param>
+    /// <param name="model">When set, only usage of models whose name contains this text is counted.</param>
+    /// <param name="project">When set, only sessions of projects whose path or folder name contains this text are returned.</param>
+    /// <param name="progress">An optional progress reporter to report the progress of the operation.</param>
+    /// <returns>One <see cref="SessionUsage"/> per matching session, ordered by start time.</returns>
+    public List<SessionUsage> GetSessionUsage(
+        DateOnly from, DateOnly to, string? model = null, string? project = null, IProgress<int>? progress = null)
+    {
+        return _provider.GetSessionUsage(from, to, model, progress)
+            .Where(s => ProjectFilter.Matches(s, project))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Gets per-project usage for a range of local days, read fresh from the session transcripts.
+    /// </summary>
+    /// <param name="from">The first local day to include.</param>
+    /// <param name="to">The last local day to include.</param>
+    /// <param name="model">When set, only usage of models whose name contains this text is counted.</param>
+    /// <param name="project">When set, only projects whose path or folder name contains this text are returned.</param>
+    /// <param name="progress">An optional progress reporter to report the progress of the operation.</param>
+    /// <returns>One <see cref="ProjectUsage"/> per matching project, in no particular order.</returns>
+    public List<ProjectUsage> GetProjectUsage(
+        DateOnly from, DateOnly to, string? model = null, string? project = null, IProgress<int>? progress = null)
+    {
+        return ProjectUsage.FromSessions(GetSessionUsage(from, to, model, project, progress));
+    }
+
+    /// <summary>
     /// Gets a summary of the current 5-hour session window.
     /// </summary>
     /// <param name="sessionResetAt">

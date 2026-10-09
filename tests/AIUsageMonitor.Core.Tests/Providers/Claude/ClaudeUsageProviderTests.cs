@@ -26,6 +26,7 @@ public class ClaudeUsageProviderTests : IDisposable
             new RecentActivityBuilder(sessionFileCache, costCalculator),
             new HourlyActivityBuilder(sessionFileCache),
             new SessionBlockBuilder(sessionFileCache, costCalculator),
+            new SessionUsageBuilder(sessionFileCache, costCalculator),
             new SessionActivityTracker(locator),
             NullLogger<ClaudeUsageProvider>.Instance);
     }

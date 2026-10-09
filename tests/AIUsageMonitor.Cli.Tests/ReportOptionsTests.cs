@@ -263,7 +263,7 @@ public class ReportOptionsTests
     {
         var stats = new SessionStats(3, TimeSpan.FromMinutes(5), 2.5, TimeSpan.FromHours(30), "abc");
 
-        var json = JsonOutput.Serialize(SessionStatsReport.From(stats), CliJsonContext.Default.SessionStatsReport);
+        var json = JsonOutput.Serialize(SessionStatsReport.Create(stats), CliJsonContext.Default.SessionStatsReport);
 
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;

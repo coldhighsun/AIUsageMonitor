@@ -129,6 +129,178 @@ public static class SpectreRenderer
     }
 
     /// <summary>
+    /// The narrowest a project name is shortened to, however little room the other columns leave.
+    /// </summary>
+    private const int MinProjectNameWidth = 12;
+
+    /// <summary>
+    /// The widest a project name is shown, however much room there is.
+    /// </summary>
+    private const int MaxProjectNameWidth = 80;
+
+    /// <summary>
+    /// Builds a table of usage per project.
+    /// </summary>
+    /// <param name="shown">The projects to show, in order.</param>
+    /// <param name="totalCount">The number of projects that matched before the list was truncated.</param>
+    /// <param name="from">The first day of the range.</param>
+    /// <param name="to">The last day of the range.</param>
+    /// <param name="layout">The console width and which optional columns to show.</param>
+    /// <returns>An <see cref="IRenderable"/> table of projects.</returns>
+    public static IRenderable BuildProjectUsage(
+        IReadOnlyList<ProjectUsage> shown, int totalCount, DateOnly from, DateOnly to, TableLayout layout)
+    {
+        var columns = new List<(string Header, bool RightAligned)> { ("Sessions", true) };
+        if (layout.ShowMessages)
+        {
+            columns.Add(("Messages", true));
+        }
+
+        columns.Add(("Tokens", true));
+        columns.Add(("Est. Cost", true));
+        columns.Add(("Last Active", false));
+
+        var rows = shown.Select(project =>
+        {
+            var cells = new List<string> { FormatCount(project.Sessions) };
+            if (layout.ShowMessages)
+            {
+                cells.Add(FormatCount(project.Messages));
+            }
+
+            cells.Add(FormatTokens(project.TotalTokens));
+            cells.Add(FormatCost(project.EstimatedCost));
+            cells.Add(FormatLocalTime(project.LastActivity, "yyyy-MM-dd"));
+            return (Name: project.ProjectPath ?? project.ProjectKey, Cells: cells);
+        }).ToList();
+
+        var caption = shown.Count < totalCount ? $"Showing {shown.Count} of {totalCount} projects" : null;
+        return BuildNamedTable($"{from:yyyy-MM-dd} ~ {to:yyyy-MM-dd}", caption, columns, nameIndex: 0, rows, layout.ConsoleWidth);
+    }
+
+    /// <summary>
+    /// Builds a table of sessions.
+    /// </summary>
+    /// <param name="shown">The sessions to show, in order.</param>
+    /// <param name="totalCount">The number of sessions that matched before the list was truncated.</param>
+    /// <param name="from">The first day of the range.</param>
+    /// <param name="to">The last day of the range.</param>
+    /// <param name="layout">The console width and which optional columns to show.</param>
+    /// <returns>An <see cref="IRenderable"/> table of sessions.</returns>
+    public static IRenderable BuildSessionList(
+        IReadOnlyList<SessionUsage> shown, int totalCount, DateOnly from, DateOnly to, TableLayout layout)
+    {
+        // Without a year two sessions of different years can look identical, so a range across years shows it.
+        var startFormat = from.Year == to.Year ? "MM-dd HH:mm" : "yyyy-MM-dd HH:mm";
+        var columns = new List<(string Header, bool RightAligned)> { ("Session", false), ("Started", false), ("Duration", true) };
+        if (layout.ShowMessages)
+        {
+            columns.Add(("Messages", true));
+        }
+
+        columns.Add(("Tokens", true));
+        columns.Add(("Est. Cost", true));
+
+        var rows = shown.Select(session =>
+        {
+            var cells = new List<string>
+            {
+                session.SessionId.Length > 8 ? session.SessionId[..8] : session.SessionId,
+                FormatLocalTime(session.Start, startFormat),
+                FormatDuration(session.Duration),
+            };
+            if (layout.ShowMessages)
+            {
+                cells.Add(FormatCount(session.Messages));
+            }
+
+            cells.Add(FormatTokens(session.TotalTokens));
+            cells.Add(FormatCost(session.EstimatedCost));
+            return (Name: session.ProjectPath ?? session.ProjectKey, Cells: cells);
+        }).ToList();
+
+        var caption = shown.Count < totalCount ? $"Showing {shown.Count} of {totalCount} sessions" : null;
+        return BuildNamedTable($"{from:yyyy-MM-dd} ~ {to:yyyy-MM-dd}", caption, columns, nameIndex: 1, rows, layout.ConsoleWidth);
+    }
+
+    /// <summary>
+    /// Builds a table whose "Project" column takes the width the other columns leave free, so the name is shortened from the
+    /// left to fit instead of being wrapped in the middle of a word.
+    /// </summary>
+    /// <param name="title">The title above the table.</param>
+    /// <param name="caption">The caption below the table, or <see langword="null"/> for none.</param>
+    /// <param name="columns">The columns other than the project name.</param>
+    /// <param name="nameIndex">The position of the project name among all columns.</param>
+    /// <param name="rows">The rows: a project name and the cells of the other columns.</param>
+    /// <param name="consoleWidth">The width of the console, in characters.</param>
+    /// <returns>The table.</returns>
+    private static Table BuildNamedTable(
+        string title,
+        string? caption,
+        IReadOnlyList<(string Header, bool RightAligned)> columns,
+        int nameIndex,
+        IReadOnlyList<(string Name, List<string> Cells)> rows,
+        int consoleWidth)
+    {
+        var table = new Table().Title(title);
+        if (caption is not null)
+        {
+            table.Caption(caption);
+        }
+
+        // Each column costs its widest cell, two spaces of padding and a border; the table has one more border.
+        var othersWidth = columns.Select((column, index) =>
+            Math.Max(column.Header.Length, rows.Select(row => row.Cells[index].Length).DefaultIfEmpty(0).Max())).Sum();
+        var overhead = 3 * (columns.Count + 1) + 1;
+        var nameWidth = Math.Clamp(consoleWidth - overhead - othersWidth, MinProjectNameWidth, MaxProjectNameWidth);
+
+        var allColumns = columns.ToList();
+        allColumns.Insert(nameIndex, ("Project", false));
+        for (var index = 0; index < allColumns.Count; index++)
+        {
+            var (header, rightAligned) = allColumns[index];
+            var column = new TableColumn(header);
+            if (index != nameIndex)
+            {
+                column = column.NoWrap();
+            }
+
+            table.AddColumn(rightAligned ? column.RightAligned() : column);
+        }
+
+        foreach (var (name, cells) in rows)
+        {
+            var row = cells.Select(Markup.Escape).ToList();
+            row.Insert(nameIndex, Markup.Escape(ShortenPath(name, nameWidth)));
+            table.AddRow(row.ToArray());
+        }
+
+        return table;
+    }
+
+    /// <summary>
+    /// Shortens a path from the left, keeping its tail, which is the part that tells projects apart.
+    /// </summary>
+    /// <param name="path">The path to shorten.</param>
+    /// <param name="maxLength">The most characters to return, the ellipsis included.</param>
+    /// <returns>The path, or an ellipsis followed by its last characters when it is longer than <paramref name="maxLength"/>.</returns>
+    internal static string ShortenPath(string path, int maxLength)
+    {
+        return path.Length <= maxLength ? path : "…" + path[^(maxLength - 1)..];
+    }
+
+    /// <summary>
+    /// Formats a moment in the machine's local time zone.
+    /// </summary>
+    /// <param name="moment">The moment to format.</param>
+    /// <param name="format">The custom date and time format.</param>
+    /// <returns>The local date and time, formatted with the invariant culture.</returns>
+    private static string FormatLocalTime(DateTimeOffset moment, string format)
+    {
+        return moment.ToLocalTime().ToString(format, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
     /// Builds a renderable summary for a date range, including key stats and a daily token chart.
     /// </summary>
     /// <param name="summary">The period summary data to render.</param>
@@ -358,6 +530,30 @@ public static class SpectreRenderer
     /// </summary>
     /// <param name="summary">The period summary data to render.</param>
     public static void RenderPeriodSummary(PeriodSummary summary) => AnsiConsole.Write(BuildPeriodSummary(summary));
+
+    /// <summary>
+    /// Writes a table of usage per project to the console, sized to the console's width.
+    /// </summary>
+    /// <param name="shown">The projects to show, in order.</param>
+    /// <param name="totalCount">The number of projects that matched before the list was truncated.</param>
+    /// <param name="from">The first day of the range.</param>
+    /// <param name="to">The last day of the range.</param>
+    /// <param name="showMessages">Whether to add a Messages column.</param>
+    public static void RenderProjectUsage(
+        IReadOnlyList<ProjectUsage> shown, int totalCount, DateOnly from, DateOnly to, bool showMessages) =>
+        AnsiConsole.Write(BuildProjectUsage(shown, totalCount, from, to, new TableLayout(AnsiConsole.Profile.Width, showMessages)));
+
+    /// <summary>
+    /// Writes a table of sessions to the console, sized to the console's width.
+    /// </summary>
+    /// <param name="shown">The sessions to show, in order.</param>
+    /// <param name="totalCount">The number of sessions that matched before the list was truncated.</param>
+    /// <param name="from">The first day of the range.</param>
+    /// <param name="to">The last day of the range.</param>
+    /// <param name="showMessages">Whether to add a Messages column.</param>
+    public static void RenderSessionList(
+        IReadOnlyList<SessionUsage> shown, int totalCount, DateOnly from, DateOnly to, bool showMessages) =>
+        AnsiConsole.Write(BuildSessionList(shown, totalCount, from, to, new TableLayout(AnsiConsole.Profile.Width, showMessages)));
 
     /// <summary>
     /// Renders the recent activity summary directly to the console.

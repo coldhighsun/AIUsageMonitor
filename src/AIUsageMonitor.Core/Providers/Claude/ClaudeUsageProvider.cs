@@ -13,6 +13,7 @@ namespace AIUsageMonitor.Core.Providers.Claude;
 /// <param name="recentActivityBuilder">Builds a summary of recent activity from session transcripts.</param>
 /// <param name="hourlyActivityBuilder">Builds hourly activity data from session transcripts.</param>
 /// <param name="sessionBlockBuilder">Builds current-session and weekly usage window summaries from session transcripts.</param>
+/// <param name="sessionUsageBuilder">Builds per-session usage for a range of days from session transcripts.</param>
 /// <param name="sessionActivityTracker">Tracks the latest session file write time without re-scanning the projects directory on every call.</param>
 /// <param name="logger">Logger used to report cache fallback diagnostics.</param>
 public sealed class ClaudeUsageProvider(
@@ -22,6 +23,7 @@ public sealed class ClaudeUsageProvider(
     RecentActivityBuilder recentActivityBuilder,
     HourlyActivityBuilder hourlyActivityBuilder,
     SessionBlockBuilder sessionBlockBuilder,
+    SessionUsageBuilder sessionUsageBuilder,
     SessionActivityTracker sessionActivityTracker,
     ILogger<ClaudeUsageProvider> logger) : IUsageProvider
 {
@@ -120,5 +122,18 @@ public sealed class ClaudeUsageProvider(
     public UsageWindowSummary GetWeekWindow((DayOfWeek Day, TimeSpan TimeOfDay)? anchor, IProgress<int>? progress = null)
     {
         return sessionBlockBuilder.BuildWeekWindow(locator.GetSessionFiles(), anchor, progress);
+    }
+
+    /// <summary>
+    /// Builds per-session usage for a range of local days from Claude session transcripts.
+    /// </summary>
+    /// <param name="from">The first local day to include.</param>
+    /// <param name="to">The last local day to include.</param>
+    /// <param name="model">When set, only usage of models whose name contains this text is counted.</param>
+    /// <param name="progress">Optional progress reporter for tracking build progress (0-100).</param>
+    /// <returns>One <see cref="SessionUsage"/> per session with activity in the range, ordered by start time.</returns>
+    public List<SessionUsage> GetSessionUsage(DateOnly from, DateOnly to, string? model, IProgress<int>? progress = null)
+    {
+        return sessionUsageBuilder.Build(locator.GetSessionFiles(), locator.ProjectsDir, from, to, model, progress);
     }
 }

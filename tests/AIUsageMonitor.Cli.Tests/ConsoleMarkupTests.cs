@@ -14,8 +14,9 @@ public class ConsoleMarkupTests
     /// Renders a renderable to plain text, without colors or ANSI sequences.
     /// </summary>
     /// <param name="renderable">The renderable to render.</param>
+    /// <param name="width">The width of the console, in characters.</param>
     /// <returns>The rendered text.</returns>
-    internal static string RenderPlain(IRenderable renderable)
+    internal static string RenderPlain(IRenderable renderable, int width = 200)
     {
         var writer = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings
@@ -25,7 +26,7 @@ public class ConsoleMarkupTests
             Out = new AnsiConsoleOutput(writer),
             Interactive = InteractionSupport.No,
         });
-        console.Profile.Width = 200;
+        console.Profile.Width = width;
         console.Write(renderable);
 
         return writer.ToString();

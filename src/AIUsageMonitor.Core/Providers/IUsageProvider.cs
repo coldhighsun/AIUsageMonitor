@@ -53,4 +53,14 @@ public interface IUsageProvider
     /// <param name="progress">An optional progress reporter.</param>
     /// <returns>A <see cref="UsageWindowSummary"/> object.</returns>
     UsageWindowSummary GetWeekWindow((DayOfWeek Day, TimeSpan TimeOfDay)? anchor, IProgress<int>? progress = null);
+
+    /// <summary>
+    /// Retrieves per-session usage for a range of local days.
+    /// </summary>
+    /// <param name="from">The first local day to include.</param>
+    /// <param name="to">The last local day to include.</param>
+    /// <param name="model">When set, only usage of models whose name contains this text is counted.</param>
+    /// <param name="progress">An optional progress reporter.</param>
+    /// <returns>One <see cref="SessionUsage"/> per session with activity in the range, ordered by start time.</returns>
+    List<SessionUsage> GetSessionUsage(DateOnly from, DateOnly to, string? model, IProgress<int>? progress = null);
 }
