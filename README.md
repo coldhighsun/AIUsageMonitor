@@ -64,7 +64,8 @@ Commands:
 - `week` — current week's usage
 - `month` — current month's usage
 - `models` — usage broken down by model
-- `sessions` — per-session summaries
+- `sessions` — overall session statistics; with `--list`, the individual sessions
+- `projects` — usage per project
 - `hours` — usage broken down by hour of day
 - `export` — export raw analytics; supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
 
@@ -74,6 +75,15 @@ Report options (`today`, `week`, `month`, `models`, `hours`, `sessions`):
 - `today --date yyyy-MM-dd` — show another day
 - `week` / `month`: `--from yyyy-MM-dd [--to yyyy-MM-dd]` or `--last <days>`; `month` also takes `--month yyyy-MM`. Ranges are limited to 3650 days and years 2000-2999; invalid values print an error to stderr and exit with code 1
 - `models --model <text>` — only models whose name contains the text (percentages stay relative to all models). If nothing matches, the table view prints `No model matches '<text>'.` to stderr and exits 0, and `--json` prints `[]`
+
+Per-project and per-session usage (`projects`, `sessions --list`):
+
+- Range: `--from`/`--to`, `--last`, `--month` as above; the default is the **last 30 days**
+- `--top <n>` — only the first N rows; `--sort` — `projects`: `tokens|cost|sessions|messages`, `sessions --list`: `tokens|cost|messages|duration|start` (largest or newest first, default `tokens`); a Messages column is added to the table when the rows are ordered by `messages`
+- `--project <text>` — only projects whose working directory or `projects/` folder name contains the text; `--model <text>` — only count usage of matching models (for sessions, only those assistant messages are counted)
+- `--json` prints `totalProjects` / `totalSessions` (matches before `--top`) and the rows, with durations as `durationSeconds`
+- `sessions` without `--list` is unchanged; giving it a range, `--top`, `--sort`, `--project` or `--model` without `--list` is an error
+- A session is clipped to the range (it shows only what happened inside it) and may span several transcript files; `messages` counts transcript lines and `duration` is the wall-clock time between the first and last message, idle gaps included. Tokens match `month` for the same days; the cost here prices every message exactly (including 5-minute and 1-hour cache writes), so it can differ a little from `month`, which scales an all-time model mix, and `month` counts a session once per day it was active
 
 `watch`'s default view, `limits`, approximates the "Current Session" (rolling 5-hour window) and "This Week" panels from Claude's own account UI, each with a **Time Progress** bar (how far the window has elapsed, colored green/orange when token usage is pacing notably behind/ahead of it) and a **Token Progress** bar (how close it is to its budget). For the session window, a pace hint also appears below the table when token usage is running noticeably ahead of or behind elapsed time, suggesting you slow down or use more freely.
 
@@ -169,7 +179,8 @@ aimon <命令>
 - `week` — 本周用量
 - `month` — 本月用量
 - `models` — 按模型统计用量
-- `sessions` — 每个会话的用量汇总
+- `sessions` — 会话整体统计;加 `--list` 则列出每个会话
+- `projects` — 按项目统计用量
 - `hours` — 按小时统计用量
 - `export` — 导出原始分析数据;支持 `--format json|csv` 与 `--output <path>`(默认输出到标准输出,格式为 JSON)
 
@@ -179,6 +190,15 @@ aimon <命令>
 - `today --date yyyy-MM-dd` — 查看指定某天
 - `week` / `month`:`--from yyyy-MM-dd [--to yyyy-MM-dd]` 或 `--last <天数>`;`month` 另支持 `--month yyyy-MM`。范围最长 3650 天,年份限定在 2000–2999;值无效时向 stderr 输出错误并以退出码 1 结束
 - `models --model <文本>` — 只显示名称包含该文本的模型(占比仍相对于全部模型)。若没有匹配项,表格模式会向 stderr 输出 `No model matches '<文本>'.` 并以退出码 0 结束,`--json` 则输出 `[]`
+
+按项目、按会话统计(`projects`、`sessions --list`):
+
+- 范围:`--from`/`--to`、`--last`、`--month` 同上,默认**最近 30 天**
+- `--top <n>` — 只显示前 N 行;`--sort` — `projects`:`tokens|cost|sessions|messages`,`sessions --list`:`tokens|cost|messages|duration|start`(从大到小,`start` 为最新在前,默认 `tokens`);按 `messages` 排序时表格会增加 Messages 列
+- `--project <文本>` — 只看工作目录或 `projects/` 文件夹名包含该文本的项目;`--model <文本>` — 只统计名称匹配的模型(会话中只计入这些助手消息)
+- `--json` 会输出 `totalProjects` / `totalSessions`(应用 `--top` 之前的匹配数)和各行数据,时长字段为 `durationSeconds`
+- 不带 `--list` 的 `sessions` 行为不变;不带 `--list` 却给了范围、`--top`、`--sort`、`--project` 或 `--model` 会报错
+- 会话会被范围裁剪(只显示范围内发生的部分),可能跨多个转录文件;`messages` 统计转录行数,`duration` 是首尾消息之间的墙钟时间(含空闲)。同一天范围内 token 与 `month` 一致;这里的费用按每条消息精确计价(含 5 分钟/1 小时缓存写入),所以和 `month`(按全期模型比例缩放估算)略有出入,且 `month` 会把跨天会话在每个活跃日各算一次
 
 `watch` 的默认视图 `limits` 近似展示 Claude 官方账户界面中的 "Current Session"(滚动 5 小时窗口)和 "This Week" 面板,各自附带 **Time Progress**(窗口已过去的时间比例,当 token 消耗明显落后/领先于时间进度时会分别显示绿色/橙色)与 **Token Progress**(用量占预算的比例)两条进度条。针对当前会话窗口,当 token 消耗进度明显快于或慢于时间进度时,表格下方还会出现一条节奏提示,建议你放慢或可以放心多用。
 
