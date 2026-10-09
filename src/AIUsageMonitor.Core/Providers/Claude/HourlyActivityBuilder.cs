@@ -17,12 +17,13 @@ public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
     public List<HourlyActivity> Build(IReadOnlyList<string> sessionFiles, IProgress<int>? progress = null)
     {
         var tokensByHour = new long[24];
+        var deduplicator = new TranscriptDeduplicator();
 
         sessionFileCache.WarmUp(sessionFiles, progress);
 
         foreach (var file in sessionFiles)
         {
-            ProcessFile(file, tokensByHour);
+            ProcessFile(file, tokensByHour, deduplicator);
         }
 
         return Enumerable.Range(0, 24)
@@ -35,7 +36,8 @@ public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
     /// </summary>
     /// <param name="file">The path to the session file to process.</param>
     /// <param name="tokensByHour">An array representing the total token usage for each hour of the day.</param>
-    private void ProcessFile(string file, long[] tokensByHour)
+    /// <param name="deduplicator">Remembers the responses already counted, across all files of this pass.</param>
+    private void ProcessFile(string file, long[] tokensByHour, TranscriptDeduplicator deduplicator)
     {
         IReadOnlyList<Models.SessionMessage> parsed;
         try
@@ -46,8 +48,6 @@ public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
         {
             return;
         }
-
-        var seenAssistantMessageIds = new HashSet<(string?, string?)>();
 
         foreach (var msg in parsed)
         {
@@ -69,10 +69,7 @@ public sealed class HourlyActivityBuilder(SessionFileCache sessionFileCache)
                 continue;
             }
 
-            var messageKey = (msg.Message!.Id, msg.RequestId) is (null, null)
-                ? (msg.Uuid, (string?)null)
-                : (msg.Message!.Id, msg.RequestId);
-            if (!seenAssistantMessageIds.Add(messageKey))
+            if (!deduplicator.TryAddUsage(msg))
             {
                 continue;
             }

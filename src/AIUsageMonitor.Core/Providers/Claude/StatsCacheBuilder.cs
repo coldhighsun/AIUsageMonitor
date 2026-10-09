@@ -26,10 +26,12 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
         var hourCounts = new Dictionary<string, int>();
         var sessionIds = new HashSet<string>();
         DateTimeOffset? firstSessionDate = null;
-        string? longestSessionId = null;
-        long longestDurationMs = 0;
-        var longestMessageCount = 0;
-        string? longestTimestamp = null;
+
+        // First and last line and message count of each session, over its lines counted once across all files, so a
+        // resumed transcript neither lends its copied history to the new session nor takes it from the original.
+        var sessionSpans = new Dictionary<string, (DateTimeOffset Start, DateTimeOffset End, int Messages)>();
+
+        var deduplicator = new TranscriptDeduplicator();
 
         sessionFileCache.WarmUp(sessionFiles, progress);
 
@@ -55,13 +57,10 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
                 return;
             }
 
-            var sessionId = messages.FirstOrDefault(m => m.SessionId is not null)?.SessionId
+            // Only a fallback for lines without their own session id: a resumed transcript begins with lines copied
+            // from the original session, so the first line's id says nothing about the session the new lines belong to.
+            var fileSessionId = messages.FirstOrDefault(m => m.SessionId is not null)?.SessionId
                 ?? Path.GetFileNameWithoutExtension(file);
-            sessionIds.Add(sessionId);
-
-            DateTimeOffset? sessionStart = null;
-            DateTimeOffset? sessionEnd = null;
-            var seenAssistantMessageIds = new HashSet<(string?, string?)>();
 
             foreach (var msg in messages)
             {
@@ -70,8 +69,17 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
                     continue;
                 }
 
-                if (sessionStart is null || ts < sessionStart) sessionStart = ts;
-                if (sessionEnd is null || ts > sessionEnd) sessionEnd = ts;
+                // A line copied in from the transcript this session was resumed from was already counted there.
+                if (!deduplicator.TryAddLine(msg))
+                {
+                    continue;
+                }
+
+                var sessionId = msg.SessionId ?? fileSessionId;
+                var isMessage = msg.Type is "user" or "assistant";
+                sessionSpans[sessionId] = sessionSpans.TryGetValue(sessionId, out var span)
+                    ? (ts < span.Start ? ts : span.Start, ts > span.End ? ts : span.End, span.Messages + (isMessage ? 1 : 0))
+                    : (ts, ts, isMessage ? 1 : 0);
 
                 var dateOnly = DateOnly.FromDateTime(ts.LocalDateTime);
                 if (firstSessionDate is null || ts < firstSessionDate)
@@ -79,10 +87,12 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
                     firstSessionDate = ts;
                 }
 
-                if (msg.Type is not "user" and not "assistant")
+                if (!isMessage)
                 {
                     continue;
                 }
+
+                sessionIds.Add(sessionId);
 
                 var bucket = dailyActivity.TryGetValue(dateOnly, out var existing)
                     ? existing
@@ -104,10 +114,7 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
                         continue;
                     }
 
-                    var messageKey = (msg.Message!.Id, msg.RequestId) is (null, null)
-                        ? (msg.Uuid, (string?)null)
-                        : (msg.Message!.Id, msg.RequestId);
-                    if (!seenAssistantMessageIds.Add(messageKey))
+                    if (!deduplicator.TryAddUsage(msg))
                     {
                         continue;
                     }
@@ -138,17 +145,22 @@ public sealed class StatsCacheBuilder(SessionFileCache sessionFileCache)
                     };
                 }
             }
+        }
 
-            if (sessionStart is not null && sessionEnd is not null)
+        string? longestSessionId = null;
+        long longestDurationMs = 0;
+        var longestMessageCount = 0;
+        string? longestTimestamp = null;
+        foreach (var (id, span) in sessionSpans)
+        {
+            // A session seen only on non-message lines has no activity and is not in TotalSessions either.
+            var durationMs = (long)(span.End - span.Start).TotalMilliseconds;
+            if (span.Messages > 0 && durationMs > longestDurationMs)
             {
-                var durationMs = (long)(sessionEnd.Value - sessionStart.Value).TotalMilliseconds;
-                if (durationMs > longestDurationMs)
-                {
-                    longestDurationMs = durationMs;
-                    longestSessionId = sessionId;
-                    longestMessageCount = messages.Count(m => m.Type is "user" or "assistant");
-                    longestTimestamp = sessionStart.Value.ToString("O");
-                }
+                longestDurationMs = durationMs;
+                longestSessionId = id;
+                longestMessageCount = span.Messages;
+                longestTimestamp = span.Start.ToString("O");
             }
         }
 
