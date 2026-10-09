@@ -330,7 +330,7 @@ public sealed class SessionBlockBuilder(
         var messageCount = 0;
         long totalTokens = 0;
         var tokensByModel = new Dictionary<string, long>();
-        var modelUsage = new Dictionary<string, (long Input, long Output, long CacheRead, long CacheCreation5m, long CacheCreation1h)>();
+        var modelUsage = new Dictionary<string, ModelTokenTotals>();
         var deduplicator = new TranscriptDeduplicator();
 
         foreach (var (_, msg) in messageList)
@@ -355,27 +355,12 @@ public sealed class SessionBlockBuilder(
                 continue;
             }
 
-            var tokens = usage.InputTokens + usage.OutputTokens
-                                            + usage.CacheReadInputTokens + usage.CacheCreationInputTokens;
+            var tokens = ModelTokenTotals.Record(modelUsage, model, usage);
             totalTokens += tokens;
             tokensByModel[model] = tokensByModel.GetValueOrDefault(model) + tokens;
-
-            var (cacheCreation5m, cacheCreation1h) = usage.CacheCreation is { } detail
-                ? (detail.Ephemeral5mInputTokens, detail.Ephemeral1hInputTokens)
-                : (usage.CacheCreationInputTokens, 0L);
-
-            var entry = modelUsage.GetValueOrDefault(model);
-            modelUsage[model] = (
-                entry.Input + usage.InputTokens,
-                entry.Output + usage.OutputTokens,
-                entry.CacheRead + usage.CacheReadInputTokens,
-                entry.CacheCreation5m + cacheCreation5m,
-                entry.CacheCreation1h + cacheCreation1h);
         }
 
-        var estimatedCost = modelUsage.Sum(kvp =>
-            costCalculator.EstimateCost(kvp.Key, kvp.Value.Input, kvp.Value.Output, kvp.Value.CacheRead,
-                kvp.Value.CacheCreation5m, kvp.Value.CacheCreation1h));
+        var estimatedCost = ModelTokenTotals.EstimateCost(modelUsage, costCalculator);
 
         return new(windowStart, resetsAt, messageCount, totalTokens, tokensByModel, estimatedCost, confidence);
     }

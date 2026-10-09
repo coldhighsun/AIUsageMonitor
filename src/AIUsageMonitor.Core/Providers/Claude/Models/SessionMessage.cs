@@ -128,6 +128,12 @@ public sealed class TokenUsage
     /// </summary>
     [JsonPropertyName("output_tokens")]
     public long OutputTokens { get; init; }
+
+    /// <summary>
+    /// Gets the tokens of the response in all four kinds: input, output, cache reads and cache writes.
+    /// </summary>
+    [JsonIgnore]
+    public long TotalTokens => InputTokens + OutputTokens + CacheReadInputTokens + CacheCreationInputTokens;
 }
 
 /// <summary>
