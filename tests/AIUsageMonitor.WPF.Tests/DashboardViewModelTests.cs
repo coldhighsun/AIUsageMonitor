@@ -60,11 +60,47 @@ public class DashboardViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Releases the data service.
+    /// The view models created by the test, stopped on cleanup so no refresh timer outlives its test.
+    /// </summary>
+    private readonly List<DashboardViewModel> _created = [];
+
+    /// <summary>
+    /// Stops the view models and releases the data service.
     /// </summary>
     public void Dispose()
     {
+        foreach (var viewModel in _created)
+        {
+            viewModel.Dispose();
+        }
+
         _dataService.Dispose();
+    }
+
+    /// <summary>
+    /// Creates a view model on the test clock and remembers it for cleanup.
+    /// </summary>
+    /// <returns>The new view model.</returns>
+    private DashboardViewModel CreateSut()
+    {
+        var viewModel = new DashboardViewModel(_dataService, _clock);
+        _created.Add(viewModel);
+
+        return viewModel;
+    }
+
+    /// <summary>
+    /// Verifies that disposing the view model stops its periodic refresh.
+    /// </summary>
+    [Fact]
+    public void Dispose_RefreshTimerRunning_StopsIt()
+    {
+        var sut = CreateSut();
+        Assert.True(sut.IsRefreshTimerRunning);
+
+        sut.Dispose();
+
+        Assert.False(sut.IsRefreshTimerRunning);
     }
 
     /// <summary>
@@ -73,7 +109,7 @@ public class DashboardViewModelTests : IDisposable
     [Fact]
     public void OnTimerTick_RangeEndsOnPreviousDay_ShiftsRangeAndReloadsOnce()
     {
-        var sut = new DashboardViewModel(_dataService, _clock);
+        var sut = CreateSut();
         var loadsBefore = _provider.HourlyCallCount;
 
         _clock.SetToday(Today.AddDays(1));
@@ -90,7 +126,7 @@ public class DashboardViewModelTests : IDisposable
     [Fact]
     public void OnTimerTick_UserPickedAnotherEnd_KeepsRange()
     {
-        var sut = new DashboardViewModel(_dataService, _clock);
+        var sut = CreateSut();
         sut.DateFrom = new DateTime(2026, 8, 1);
         sut.DateTo = new DateTime(2026, 8, 31);
 
@@ -107,7 +143,7 @@ public class DashboardViewModelTests : IDisposable
     [Fact]
     public void DateRangeChanged_NoDataInNewRange_ClearsDailyChart()
     {
-        var sut = new DashboardViewModel(_dataService, _clock);
+        var sut = CreateSut();
         Assert.NotEmpty(sut.DailyUsageSeries);
 
         sut.DateFrom = new DateTime(2026, 1, 1);
@@ -123,7 +159,7 @@ public class DashboardViewModelTests : IDisposable
     [Fact]
     public void Refresh_NoHourlyData_ClearsHourlyChart()
     {
-        var sut = new DashboardViewModel(_dataService, _clock);
+        var sut = CreateSut();
         Assert.NotEmpty(sut.HourlyActivitySeries);
 
         _provider.HourlyActivity = [];
