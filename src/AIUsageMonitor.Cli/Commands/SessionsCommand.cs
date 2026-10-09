@@ -17,10 +17,22 @@ public static class SessionsCommand
     public static Command Create(DataService dataService)
     {
         var command = new Command("sessions", "Show session statistics");
-        command.SetAction(_ =>
+        var jsonOption = JsonOutput.CreateOption();
+        command.Options.Add(jsonOption);
+
+        command.SetAction(parseResult =>
         {
-            var stats = ProgressReporter.Run("Loading usage data...", dataService.GetSessionStats);
-            SpectreRenderer.RenderSessionStats(stats);
+            var json = parseResult.GetValue(jsonOption);
+            var stats = JsonOutput.Load(json, "Loading usage data...", dataService.GetSessionStats);
+            if (json)
+            {
+                JsonOutput.Write(SessionStatsReport.From(stats), CliJsonContext.Default.SessionStatsReport);
+            }
+            else
+            {
+                SpectreRenderer.RenderSessionStats(stats);
+            }
+
             return 0;
         });
         return command;

@@ -1,30 +1,22 @@
-using AIUsageMonitor.Cli.Rendering;
 using AIUsageMonitor.Core.Services;
 using System.CommandLine;
 
 namespace AIUsageMonitor.Cli.Commands;
 
 /// <summary>
-/// Represents the "week" command that shows a summary of usage data for the last 7 days.
+/// Represents the "week" command, which shows a usage summary for the last 7 days or a chosen date range.
 /// </summary>
 public static class WeekCommand
 {
     /// <summary>
-    /// Creates a new instance of the "week" command.
+    /// Creates a new instance of the "week" command with the specified data service.
     /// </summary>
-    /// <param name="dataService">The data service used to retrieve usage data for the last 7 days.</param>
-    /// <returns>A configured <see cref="Command"/> instance for showing the last 7 days summary.</returns>
-    public static Command Create(DataService dataService)
+    /// <param name="dataService">The data service used to retrieve the period summary.</param>
+    /// <param name="timeProvider">The clock that decides what "today" is; the system clock when <see langword="null"/>.</param>
+    /// <returns>A configured <see cref="Command"/> instance for showing a weekly summary.</returns>
+    public static Command Create(DataService dataService, TimeProvider? timeProvider = null)
     {
-        var command = new Command("week", "Show last 7 days summary");
-        command.SetAction(_ =>
-        {
-            var to = DateOnly.FromDateTime(DateTime.Today);
-            var from = to.AddDays(-6);
-            var summary = ProgressReporter.Run("Loading usage data...", p => dataService.GetPeriodSummary(from, to, p));
-            SpectreRenderer.RenderPeriodSummary(summary);
-            return 0;
-        });
-        return command;
+        return PeriodCommand.Create(
+            "week", "Show usage for a date range (default: last 7 days)", TimeSpan.FromDays(7), allowMonth: false, dataService, timeProvider);
     }
 }

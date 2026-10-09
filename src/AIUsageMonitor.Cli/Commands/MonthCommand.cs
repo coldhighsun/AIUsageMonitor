@@ -1,30 +1,22 @@
-using AIUsageMonitor.Cli.Rendering;
 using AIUsageMonitor.Core.Services;
 using System.CommandLine;
 
 namespace AIUsageMonitor.Cli.Commands;
 
 /// <summary>
-/// Represents the command to show the last 30 days summary of AI usage.
+/// Represents the "month" command, which shows a usage summary for the last 30 days, a chosen date range or a calendar month.
 /// </summary>
 public static class MonthCommand
 {
     /// <summary>
-    /// Creates a new instance of the MonthCommand.
+    /// Creates a new instance of the "month" command with the specified data service.
     /// </summary>
-    /// <param name="dataService">The data service used to retrieve AI usage data.</param>
-    /// <returns>A configured <see cref="Command"/> instance for showing the last 30 days summary of AI usage.</returns>
-    public static Command Create(DataService dataService)
+    /// <param name="dataService">The data service used to retrieve the period summary.</param>
+    /// <param name="timeProvider">The clock that decides what "today" is; the system clock when <see langword="null"/>.</param>
+    /// <returns>A configured <see cref="Command"/> instance for showing a monthly summary.</returns>
+    public static Command Create(DataService dataService, TimeProvider? timeProvider = null)
     {
-        var command = new Command("month", "Show last 30 days summary");
-        command.SetAction(_ =>
-        {
-            var to = DateOnly.FromDateTime(DateTime.Today);
-            var from = to.AddDays(-29);
-            var summary = ProgressReporter.Run("Loading usage data...", p => dataService.GetPeriodSummary(from, to, p));
-            SpectreRenderer.RenderPeriodSummary(summary);
-            return 0;
-        });
-        return command;
+        return PeriodCommand.Create(
+            "month", "Show usage for a date range or calendar month (default: last 30 days)", TimeSpan.FromDays(30), allowMonth: true, dataService, timeProvider);
     }
 }
