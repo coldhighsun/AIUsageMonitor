@@ -30,6 +30,14 @@ public static class ExportCommand
         var command = new Command("export", "Export usage data");
         var formatOption = new Option<string>("--format") { Description = "Output format (json or csv)", DefaultValueFactory = _ => "json" };
         var outputOption = new Option<string?>("--output") { Description = "Output file path (defaults to stdout)" };
+        formatOption.Validators.Add(result =>
+        {
+            var value = result.GetValueOrDefault<string>();
+            if (!IsSupportedFormat(value))
+            {
+                result.AddError($"Unsupported format '{value}'; expected json or csv.");
+            }
+        });
         command.Options.Add(formatOption);
         command.Options.Add(outputOption);
 
@@ -73,6 +81,17 @@ public static class ExportCommand
         });
 
         return command;
+    }
+
+    /// <summary>
+    /// Determines whether an output format name is one the export command can produce.
+    /// </summary>
+    /// <param name="format">The format name given on the command line.</param>
+    /// <returns><see langword="true"/> for <c>json</c> or <c>csv</c> (case-insensitive).</returns>
+    internal static bool IsSupportedFormat(string? format)
+    {
+        return string.Equals(format, "json", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(format, "csv", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
