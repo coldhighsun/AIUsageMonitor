@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `watch` takes a sub-view (`limits|today|week|models|sessions|hours`, default `limits`) and refreshes it on an interval
   - `watch` (default `--view limits`) continuously refreshes "current session" (5h) / "this week" usage with reset times (`--interval`, `--session-reset <HH:mm>`, `--week-reset <Ddd HH:mm>`; both persist to `%LOCALAPPDATA%\aimon\limits-settings.json`, and `r` re-prompts for both reset times while watching; the session reset is auto-computed at startup and never prompted for there, only the week reset is)
   - `export` supports `--format json|csv` and `--output <path>` (defaults to stdout, JSON)
+  - Report commands (`today|week|month|models|hours|sessions`) take `--json` (machine-readable stdout, no progress bar, update check skipped). `today` takes `--date yyyy-MM-dd`; `week`/`month` take `--from [--to]` or `--last <days>` (`month` also `--month yyyy-MM`); `models` takes `--model <text>`. Date arguments are validated by `Commands/DateRangeResolver` (max 3650 days, years 2000-2999) and a bad one prints to stderr and exits 1; `Commands/DateRangeOptions` only defines/reads the options, and `Commands/JsonOutput` holds the shared `--json` plumbing (JSON shapes are in `Rendering/CliJsonContext`, durations as seconds).
 - Run WPF app (Windows-only): `dotnet run --project src/AIUsageMonitor.WPF`
 - Run tests: `dotnet test AIUsageMonitor.slnx`
   - Single test: `dotnet test tests/AIUsageMonitor.Core.Tests --filter "FullyQualifiedName~MethodName"`
