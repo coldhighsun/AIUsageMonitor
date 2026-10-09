@@ -73,7 +73,7 @@ public static class WatchCommand
                 if (!LimitsAnchors.TryResolve(
                         sessionResetArg, weekResetArg, out effectiveSessionResetAt, out effectiveWeekResetAt, out var error))
                 {
-                    AnsiConsole.MarkupLine($"[red]{error}[/]");
+                    AnsiConsole.MarkupLine(ConsoleMarkup.Red(error!));
                     return 1;
                 }
 
@@ -96,7 +96,7 @@ public static class WatchCommand
                         weekTokenProgressArg, saved.WeekCostLimit, lastWeekWindow.EstimatedCost, "Weekly",
                         out effectiveWeekTokenLimit, out error))
                 {
-                    AnsiConsole.MarkupLine($"[red]{error}[/]");
+                    AnsiConsole.MarkupLine(ConsoleMarkup.Red(error!));
                     return 1;
                 }
 
@@ -131,7 +131,7 @@ public static class WatchCommand
                     "sessions" => SpectreRenderer.BuildSessionStats(dataService.GetSessionStats(progress)),
                     "hours" => SpectreRenderer.BuildHourlyActivity(dataService.GetHourlyActivity(progress)),
                     "limits" => BuildLimits(progress),
-                    _ => new Markup($"[red]Unknown view: {view}. Use today|week|models|sessions|hours|limits.[/]")
+                    _ => new Markup(ConsoleMarkup.Red($"Unknown view: {view}. Use today|week|models|sessions|hours|limits."))
                 };
 
                 return WithUpdateNotice(content);

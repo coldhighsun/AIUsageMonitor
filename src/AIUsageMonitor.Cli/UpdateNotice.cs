@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using AIUsageMonitor.Cli.Rendering;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 
 namespace AIUsageMonitor.Cli;
@@ -51,7 +52,7 @@ public static class UpdateNotice
             // `aimon export --format json` writing JSON to stdout for a script to consume).
             var errorConsole = AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(Console.Error) });
             errorConsole.MarkupLine(
-                $"[yellow]A new version ({result.LatestVersion}) of aimon is available. Download it at {result.ReleaseUrl}[/]");
+                ConsoleMarkup.Colored("yellow", $"A new version ({result.LatestVersion}) of aimon is available. Download it at {result.ReleaseUrl}"));
         }
     }
 
@@ -63,7 +64,7 @@ public static class UpdateNotice
     public static Spectre.Console.Rendering.IRenderable? BuildRenderable(UpdateCheckOutcome? result)
     {
         return result is { IsUpdateAvailable: true }
-            ? new Markup($"[yellow]A new version ({result.LatestVersion}) of aimon is available. Download it at {result.ReleaseUrl}[/]")
+            ? new Markup(ConsoleMarkup.Colored("yellow", $"A new version ({result.LatestVersion}) of aimon is available. Download it at {result.ReleaseUrl}"))
             : null;
     }
 }
