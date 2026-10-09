@@ -41,6 +41,74 @@ public class DataServiceTests : IDisposable
         Assert.Equal(1, _provider.StatsCacheCallCount);
     }
 
+    /// <summary>
+    /// Verifies that an invalidation drops the cached stats so the next call computes them again.
+    /// </summary>
+    [Fact]
+    public void InvalidateStatsCache_AfterCaching_ComputesAgainOnNextCall()
+    {
+        using var sut = CreateSut();
+        sut.GetStatsCache();
+
+        sut.InvalidateStatsCache();
+        sut.GetStatsCache();
+
+        Assert.Equal(2, _provider.StatsCacheCallCount);
+    }
+
+    /// <summary>
+    /// Verifies that stats invalidated while being computed are still shared with the next call, so the several
+    /// reads of one refresh do not each recompute them.
+    /// </summary>
+    [Fact]
+    public async Task GetStatsCache_InvalidatedWhileComputing_ReusesTheResultForTheNextCall()
+    {
+        using var sut = CreateSut();
+
+        await GetStatsCacheInvalidatedWhileComputingAsync(sut);
+        sut.GetStatsCache();
+
+        Assert.Equal(1, _provider.StatsCacheCallCount);
+    }
+
+    /// <summary>
+    /// Verifies that stats invalidated while being computed do not survive a further invalidation.
+    /// </summary>
+    [Fact]
+    public async Task GetStatsCache_InvalidatedWhileComputingAndAgain_ComputesAgain()
+    {
+        using var sut = CreateSut();
+
+        await GetStatsCacheInvalidatedWhileComputingAsync(sut);
+        sut.InvalidateStatsCache();
+        sut.GetStatsCache();
+
+        Assert.Equal(2, _provider.StatsCacheCallCount);
+    }
+
+    /// <summary>
+    /// Starts a stats computation, invalidates the cache while the provider is still working, and lets it finish.
+    /// </summary>
+    /// <param name="sut">The service under test.</param>
+    /// <returns>A task that completes once the computation has finished.</returns>
+    private async Task GetStatsCacheInvalidatedWhileComputingAsync(DataService sut)
+    {
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _provider.OnGetStatsCache = () =>
+        {
+            started.Set();
+            release.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        };
+
+        var computation = Task.Run(() => sut.GetStatsCache(), TestContext.Current.CancellationToken);
+        Assert.True(started.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        sut.InvalidateStatsCache();
+        release.Set();
+        await computation;
+        _provider.OnGetStatsCache = null;
+    }
+
     [Fact]
     public void GetDailySummary_UsesCachedStatsCache()
     {
@@ -135,6 +203,10 @@ public class DataServiceTests : IDisposable
     private sealed class FakeUsageProvider : IUsageProvider
     {
         public int StatsCacheCallCount { get; private set; }
+        /// <summary>
+        /// Gets or sets an action run inside <see cref="GetStatsCache"/> after the call has been counted, e.g. to block it.
+        /// </summary>
+        public Action? OnGetStatsCache { get; set; }
         public StatsCache StatsCache { get; set; } = new();
         public List<HourlyActivity> HourlyActivity { get; set; } = [];
         public TimeSpan? LastRecentActivityWindow { get; private set; }
@@ -154,6 +226,7 @@ public class DataServiceTests : IDisposable
         public StatsCache GetStatsCache(IProgress<int>? progress = null)
         {
             StatsCacheCallCount++;
+            OnGetStatsCache?.Invoke();
             return StatsCache;
         }
 

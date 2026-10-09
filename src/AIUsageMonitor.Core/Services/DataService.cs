@@ -39,6 +39,22 @@ public sealed class DataService : IDisposable
     private readonly MemoryCache _cache = new("StatsCacheCache");
 
     /// <summary>
+    /// Guards <see cref="_statsCacheVersion"/> together with the stats cache entry, so that checking the version and
+    /// storing a freshly computed stats cache cannot interleave with an invalidation.
+    /// </summary>
+    private readonly Lock _statsCacheGate = new();
+
+    /// <summary>
+    /// Incremented on every invalidation of the stats cache; a computation that started under an older value is stale.
+    /// </summary>
+    private long _statsCacheVersion;
+
+    /// <summary>
+    /// How long a stats cache that was invalidated while it was being computed is still served.
+    /// </summary>
+    private static readonly TimeSpan StaleResultLifetime = TimeSpan.FromSeconds(2);
+
+    /// <summary>
     /// The expiration time for the cached stats cache. This field is initialized with a default value of 10 minutes and is used to determine how long the stats cache should be kept in memory before being considered stale and needing to be refreshed from the usage provider.
     /// </summary>
     private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(10);
@@ -118,7 +134,7 @@ public sealed class DataService : IDisposable
                     NotifyFilter = NotifyFilters.LastWrite,
                     EnableRaisingEvents = true
                 };
-                _statsCacheWatcher.Changed += (_, _) => _cache.Remove(StatsCacheKey);
+                _statsCacheWatcher.Changed += (_, _) => InvalidateStatsCache();
                 _statsCacheWatcher.Error += (_, e) => _logger.LogWarning(e.GetException(), "Error watching stats-cache.json");
             }
 
@@ -273,9 +289,31 @@ public sealed class DataService : IDisposable
             return cached;
         }
 
+        var version = Volatile.Read(ref _statsCacheVersion);
         var stats = _provider.GetStatsCache(progress);
-        _cache.Set(StatsCacheKey, stats, DateTimeOffset.UtcNow.Add(_cacheExpiration));
+        lock (_statsCacheGate)
+        {
+            // An invalidation that arrived while the stats were being computed means they may already be out of
+            // date, so they are only kept briefly: long enough for the other reads of the same refresh to share
+            // them, short enough that the staleness stays negligible. Any later invalidation drops them at once.
+            var lifetime = version == _statsCacheVersion ? _cacheExpiration : StaleResultLifetime;
+            _cache.Set(StatsCacheKey, stats, DateTimeOffset.UtcNow.Add(lifetime));
+        }
+
         return stats;
+    }
+
+    /// <summary>
+    /// Drops the cached stats cache and marks any computation that is currently in flight as stale, so that its
+    /// result is not cached after the fact.
+    /// </summary>
+    internal void InvalidateStatsCache()
+    {
+        lock (_statsCacheGate)
+        {
+            _statsCacheVersion++;
+            _cache.Remove(StatsCacheKey);
+        }
     }
 
 
@@ -291,7 +329,7 @@ public sealed class DataService : IDisposable
     {
         _logger.LogTrace("Session file change detected: {ChangeType} - {FullPath}", e.ChangeType, e.FullPath);
 
-        _cache.Remove(StatsCacheKey);
+        InvalidateStatsCache();
 
         switch (e.ChangeType)
         {
@@ -324,7 +362,7 @@ public sealed class DataService : IDisposable
     {
         _logger.LogTrace("Session file renamed: {OldPath} -> {FullPath}", e.OldFullPath, e.FullPath);
 
-        _cache.Remove(StatsCacheKey);
+        InvalidateStatsCache();
         _sessionFileCache.Remove(e.OldFullPath);
 
         var locator = (_provider as ClaudeUsageProvider)?.Locator;
@@ -350,7 +388,7 @@ public sealed class DataService : IDisposable
         _logger.LogTrace("Project directory change detected: {ChangeType} - {FullPath}", e.ChangeType, e.FullPath);
 
         (_provider as ClaudeUsageProvider)?.Locator.InvalidateSessionFiles();
-        _cache.Remove(StatsCacheKey);
+        InvalidateStatsCache();
     }
 
     /// <summary>
@@ -365,7 +403,7 @@ public sealed class DataService : IDisposable
 
         (_provider as ClaudeUsageProvider)?.Locator.InvalidateSessionFiles();
         _sessionFileCache.ForgetWriteTimes();
-        _cache.Remove(StatsCacheKey);
+        InvalidateStatsCache();
     }
 
     /// <summary>
