@@ -25,4 +25,8 @@
 	<PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="AIUsageMonitor.WPF.Tests" />
+  </ItemGroup>
+
 </Project>

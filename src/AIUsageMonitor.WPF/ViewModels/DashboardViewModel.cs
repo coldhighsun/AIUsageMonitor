@@ -1,4 +1,5 @@
 using System.Windows.Threading;
+using AIUsageMonitor.Core.Analytics;
 using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -17,6 +18,21 @@ public partial class DashboardViewModel : ObservableObject
     private readonly DataService _dataService;
     private readonly DispatcherTimer _timer;
 
+    /// <summary>
+    /// The clock that decides what "today" is for the date range.
+    /// </summary>
+    private readonly TimeProvider _timeProvider;
+
+    /// <summary>
+    /// The day the date range was last aligned to, used to roll the range forward when midnight passes.
+    /// </summary>
+    private DateOnly _lastToday;
+
+    /// <summary>
+    /// Whether the date properties are being changed by the view model itself, in which case the single reload that follows is done by the caller.
+    /// </summary>
+    private bool _suppressReload;
+
     [ObservableProperty]
     private ISeries[] _dailyUsageSeries = [];
 
@@ -27,10 +43,10 @@ public partial class DashboardViewModel : ObservableObject
     private Axis[] _dailyYAxes = [];
 
     [ObservableProperty]
-    private DateTime _dateFrom = DateTime.Today.AddDays(-29);
+    private DateTime _dateFrom;
 
     [ObservableProperty]
-    private DateTime _dateTo = DateTime.Today;
+    private DateTime _dateTo;
 
     [ObservableProperty]
     private string _estimatedCost = "$0.00";
@@ -55,12 +71,35 @@ public partial class DashboardViewModel : ObservableObject
 
     [ObservableProperty]
     private string _totalTokens = "0";
-    public DashboardViewModel(DataService dataService)
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DashboardViewModel"/> class, showing the last 30 days and refreshing every minute.
+    /// </summary>
+    /// <param name="dataService">The service that supplies the usage data.</param>
+    /// <param name="timeProvider">The clock that decides what "today" is; defaults to the system clock.</param>
+    public DashboardViewModel(DataService dataService, TimeProvider? timeProvider = null)
     {
         _dataService = dataService;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+
+        _lastToday = GetToday();
+        _suppressReload = true;
+        DateTo = _lastToday.ToDateTime(TimeOnly.MinValue);
+        DateFrom = _lastToday.AddDays(-29).ToDateTime(TimeOnly.MinValue);
+        _suppressReload = false;
+
         _timer = new() { Interval = TimeSpan.FromMinutes(1) };
-        _timer.Tick += (_, _) => LoadData();
+        _timer.Tick += (_, _) => OnTimerTick();
         _timer.Start();
+        LoadData();
+    }
+
+    /// <summary>
+    /// Handles one refresh tick: rolls the date range forward if a new day has started, then reloads the data once.
+    /// </summary>
+    internal void OnTimerTick()
+    {
+        AdvanceDateRange();
         LoadData();
     }
 
@@ -76,6 +115,10 @@ public partial class DashboardViewModel : ObservableObject
     {
         if (period.DailyBreakdown.Count == 0)
         {
+            DailyUsageSeries = [];
+            DailyXAxes = [];
+            DailyYAxes = [];
+
             return;
         }
 
@@ -115,6 +158,10 @@ public partial class DashboardViewModel : ObservableObject
     {
         if (hours.Count == 0)
         {
+            HourlyActivitySeries = [];
+            HourlyXAxes = [];
+            HourlyYAxes = [];
+
             return;
         }
 
@@ -147,6 +194,8 @@ public partial class DashboardViewModel : ObservableObject
     {
         if (models.Count == 0)
         {
+            ModelDistributionSeries = [];
+
             return;
         }
 
@@ -200,9 +249,52 @@ public partial class DashboardViewModel : ObservableObject
         }
     }
 
-    partial void OnDateFromChanged(DateTime value) => LoadData();
+    /// <summary>
+    /// Gets today's date in the local time zone, according to the view model's clock.
+    /// </summary>
+    /// <returns>Today's date.</returns>
+    private DateOnly GetToday()
+    {
+        return DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
+    }
 
-    partial void OnDateToChanged(DateTime value) => LoadData();
+    /// <summary>
+    /// Rolls the date range forward when a new day has started and the range was ending on the previous day.
+    /// </summary>
+    private void AdvanceDateRange()
+    {
+        var today = GetToday();
+        var (from, to) = RollingDateRange.Advance(
+            DateOnly.FromDateTime(DateFrom), DateOnly.FromDateTime(DateTo), _lastToday, today);
+        _lastToday = today;
+
+        _suppressReload = true;
+        try
+        {
+            DateFrom = from.ToDateTime(TimeOnly.MinValue);
+            DateTo = to.ToDateTime(TimeOnly.MinValue);
+        }
+        finally
+        {
+            _suppressReload = false;
+        }
+    }
+
+    partial void OnDateFromChanged(DateTime value)
+    {
+        if (!_suppressReload)
+        {
+            LoadData();
+        }
+    }
+
+    partial void OnDateToChanged(DateTime value)
+    {
+        if (!_suppressReload)
+        {
+            LoadData();
+        }
+    }
 
     [RelayCommand]
     private void Refresh()
