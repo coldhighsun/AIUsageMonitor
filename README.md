@@ -91,7 +91,8 @@ The real reset times and token limits live on your Anthropic account, not locall
 
 - `--session-reset "HH:mm"` — the session reset time Claude shows (e.g. `"18:30"`)
 - `--week-reset "Ddd HH:mm"` — the weekly reset (e.g. `"Mon 09:00"`); fixed per account, so it only needs entering once, unlike the session reset
-- `--session-token-progress <percent>` / `--week-token-progress <percent>` — the usage % Claude shows (e.g. `32`), used to back out a token budget
+- `--session-token-progress <percent>` / `--week-token-progress <percent>` — the usage % Claude shows (e.g. `32`), used to back out a usage budget. Each percentage is saved together with the cost counted at that moment, and the budget is derived from it; a percentage given while nothing is counted for the window yet is ignored (the saved one is kept)
+- `--cache-read-weight <0-1>` — what share of the list price of cache-read tokens counts toward the usage bar (default `0.1`, a heuristic: the subscription quota is not metered at API prices, and cache reads dominate long sessions). Lower it if the bar runs ahead of Claude's own percentage, raise it if it runs behind; the saved percentages are kept and the budgets re-derived, so there is no need to read `/usage` again. It is saved when given; `--reset-cache-read-weight` forgets it. A line below the table shows what the bar is made of (cache read / output / cache write / input)
 
 Without these, values are estimated from local transcript timestamps, and a row shows as **unknown** rather than a guessed countdown when there isn't enough local evidence (no activity in the last 5 hours, or no weekly anchor at all).
 
@@ -206,7 +207,8 @@ aimon <命令>
 
 - `--session-reset "HH:mm"` — Claude 显示的会话重置时间(如 `"18:30"`)
 - `--week-reset "Ddd HH:mm"` — 每周重置时刻(如 `"Mon 09:00"`);账号固定不变,只需录入一次,不会像会话那样过期
-- `--session-token-progress <百分比>` / `--week-token-progress <百分比>` — Claude 显示的用量百分比(如 `32`),用来反推出 token 预算
+- `--session-token-progress <百分比>` / `--week-token-progress <百分比>` — Claude 显示的用量百分比(如 `32`),用来反推出用量预算。百分比会连同当时统计到的成本一起保存,预算由它推算;窗口内还没有统计到用量时给出的百分比会被忽略(保留已保存的)
+- `--cache-read-weight <0-1>` — cache read token 按标价的多大比例计入用量进度条(默认 `0.1`,是经验值:订阅额度不按 API 标价计量,而 cache read 在长会话里占绝大多数)。进度条比 Claude 显示的快就调小,慢就调大;已保存的百分比会保留并按新权重重新推算预算,无需再看 `/usage`。传入后会被保存,`--reset-cache-read-weight` 可忘记它。表格下方有一行说明进度条由哪几类 token 构成(cache read / output / cache write / input)
 
 不配置这些参数时,会根据本地会话记录估算;当本地证据不足时(近 5 小时无活动,或压根没有周期锚点),对应行会显示为**未知**,而不是编造一个倒计时。
 
