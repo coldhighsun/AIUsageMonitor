@@ -1,4 +1,5 @@
 using AIUsageMonitor.Core.Analytics;
+using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Providers.Claude.Models;
 using Xunit;
 
@@ -7,6 +8,32 @@ namespace AIUsageMonitor.Core.Tests.Analytics;
 public class CostCalculatorTests
 {
     private readonly CostCalculator _sut = new();
+
+    /// <summary>
+    /// Verifies that every kind of token is priced on its own and that the parts add up to the plain estimate.
+    /// </summary>
+    [Fact]
+    public void EstimateCostBreakdown_AllKindsOfToken_PricesEachKindAndSumsToEstimateCost()
+    {
+        var breakdown = _sut.EstimateCostBreakdown("sonnet-5", 1_000_000, 1_000_000, 1_000_000, 1_000_000, 1_000_000);
+
+        Assert.Equal(2m, breakdown.Input);
+        Assert.Equal(10m, breakdown.Output);
+        Assert.Equal(0.20m, breakdown.CacheRead);
+        Assert.Equal(2.5m + 4m, breakdown.CacheWrite);
+        Assert.Equal(_sut.EstimateCost("sonnet-5", 1_000_000, 1_000_000, 1_000_000, 1_000_000, 1_000_000), breakdown.Total);
+    }
+
+    /// <summary>
+    /// Verifies that a model without a price has no cost in any kind.
+    /// </summary>
+    [Fact]
+    public void EstimateCostBreakdown_UnknownModel_IsAllZero()
+    {
+        var breakdown = _sut.EstimateCostBreakdown("no-such-model", 1_000, 1_000, 1_000, 1_000, 1_000);
+
+        Assert.Equal(default, breakdown);
+    }
 
     [Fact]
     public void EstimateCost_FromModelUsageEntry_EstimatesWhenRecordedCostIsZero()

@@ -1,3 +1,4 @@
+using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Providers.Claude.Models;
 
 namespace AIUsageMonitor.Core.Analytics;
@@ -76,18 +77,35 @@ public sealed class CostCalculator
     /// <returns>The estimated cost in USD, or 0 if the model's pricing could not be resolved.</returns>
     public decimal EstimateCost(string modelName, long inputTokens, long outputTokens,
         long cacheReadTokens, long cacheCreation5mTokens, long cacheCreation1hTokens)
+        => EstimateCostBreakdown(
+            modelName, inputTokens, outputTokens, cacheReadTokens, cacheCreation5mTokens, cacheCreation1hTokens).Total;
+
+    /// <summary>
+    /// Estimates the cost in USD for a request like the six-argument <c>EstimateCost</c>, but keeps the cost of each
+    /// kind of token apart.
+    /// </summary>
+    /// <param name="modelName">The model name (or a string containing it) used to resolve pricing.</param>
+    /// <param name="inputTokens">Number of input tokens consumed.</param>
+    /// <param name="outputTokens">Number of output tokens generated.</param>
+    /// <param name="cacheReadTokens">Number of tokens read from cache.</param>
+    /// <param name="cacheCreation5mTokens">Number of tokens used to create 5-minute-TTL cache entries.</param>
+    /// <param name="cacheCreation1hTokens">Number of tokens used to create 1-hour-TTL cache entries.</param>
+    /// <returns>The estimated cost by kind of token, or all zero if the model's pricing could not be resolved.</returns>
+    public CostBreakdown EstimateCostBreakdown(string modelName, long inputTokens, long outputTokens,
+        long cacheReadTokens, long cacheCreation5mTokens, long cacheCreation1hTokens)
     {
         var pricing = ResolvePricing(modelName);
         if (pricing is null)
         {
-            return 0m;
+            return default;
         }
 
-        return (inputTokens * pricing.InputPerMTok
-            + outputTokens * pricing.OutputPerMTok
-            + cacheReadTokens * pricing.CacheReadPerMTok
-            + cacheCreation5mTokens * pricing.CacheCreation5mPerMTok
-            + cacheCreation1hTokens * pricing.CacheCreation1hPerMTok) / 1_000_000m;
+        return new(
+            inputTokens * pricing.InputPerMTok / 1_000_000m,
+            outputTokens * pricing.OutputPerMTok / 1_000_000m,
+            cacheReadTokens * pricing.CacheReadPerMTok / 1_000_000m,
+            (cacheCreation5mTokens * pricing.CacheCreation5mPerMTok
+                + cacheCreation1hTokens * pricing.CacheCreation1hPerMTok) / 1_000_000m);
     }
 
     public decimal EstimateCost(string modelName, ModelUsageEntry usage)
