@@ -263,13 +263,13 @@ public class DashboardViewModelTests : IDisposable
         /// <inheritdoc />
         public UsageWindowSummary GetCurrentSessionWindow(DateTimeOffset? sessionResetAt, IProgress<int>? progress = null)
         {
-            return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
+            return new(null, null, 0, 0, [], WindowConfidence.Unknown, default);
         }
 
         /// <inheritdoc />
         public UsageWindowSummary GetWeekWindow((DayOfWeek Day, TimeSpan TimeOfDay)? anchor, IProgress<int>? progress = null)
         {
-            return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
+            return new(null, null, 0, 0, [], WindowConfidence.Unknown, default);
         }
     }
 }

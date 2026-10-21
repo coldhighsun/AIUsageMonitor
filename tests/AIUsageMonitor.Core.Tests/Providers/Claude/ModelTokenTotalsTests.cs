@@ -102,4 +102,26 @@ public class ModelTokenTotalsTests
         Assert.Equal(costs.EstimateCost("sonnet-5", 100, 50, 1000, 200, 300) + costs.EstimateCost("claude-opus-5-5", 10, 20, 0, 0, 0), cost);
         Assert.Equal(costs.EstimateCost("sonnet-5", 100, 50, 1000, 200, 300), byModel["sonnet-5"].EstimateCost("sonnet-5", costs));
     }
+
+    /// <summary>
+    /// Verifies that the breakdown of several models adds up kind by kind and equals the total cost.
+    /// </summary>
+    [Fact]
+    public void EstimateCostBreakdown_TwoModels_SumsEachKindAndMatchesTheTotalCost()
+    {
+        var costs = new CostCalculator();
+        var byModel = new Dictionary<string, ModelTokenTotals>();
+        ModelTokenTotals.Record(byModel, "sonnet-5", SplitUsage());
+        ModelTokenTotals.Record(byModel, "claude-opus-5-5", new TokenUsage { InputTokens = 10, OutputTokens = 20 });
+
+        var breakdown = ModelTokenTotals.EstimateCostBreakdown(byModel, costs);
+
+        var sonnet = costs.EstimateCostBreakdown("sonnet-5", 100, 50, 1000, 200, 300);
+        var opus = costs.EstimateCostBreakdown("claude-opus-5-5", 10, 20, 0, 0, 0);
+        Assert.Equal(sonnet.Input + opus.Input, breakdown.Input);
+        Assert.Equal(sonnet.Output + opus.Output, breakdown.Output);
+        Assert.Equal(sonnet.CacheRead, breakdown.CacheRead);
+        Assert.Equal(sonnet.CacheWrite, breakdown.CacheWrite);
+        Assert.Equal(ModelTokenTotals.EstimateCost(byModel, costs), breakdown.Total);
+    }
 }

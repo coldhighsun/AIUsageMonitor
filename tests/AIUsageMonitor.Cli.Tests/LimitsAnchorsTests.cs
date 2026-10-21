@@ -80,7 +80,7 @@ public class LimitsAnchorsTests
     /// Builds a session window with the given reset time and confidence.
     /// </summary>
     private static UsageWindowSummary Window(DateTimeOffset? resetsAt, WindowConfidence confidence)
-        => new(null, resetsAt, 0, 0, [], 0m, confidence);
+        => new(null, resetsAt, 0, 0, [], confidence, default);
 
     /// <summary>
     /// Verifies that an upcoming estimated reset is offered as the default.

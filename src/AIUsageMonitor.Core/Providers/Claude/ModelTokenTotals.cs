@@ -1,4 +1,5 @@
 using AIUsageMonitor.Core.Analytics;
+using AIUsageMonitor.Core.Models;
 using AIUsageMonitor.Core.Providers.Claude.Models;
 
 namespace AIUsageMonitor.Core.Providers.Claude;
@@ -75,6 +76,17 @@ internal sealed class ModelTokenTotals
     }
 
     /// <summary>
+    /// Estimates the cost of the accumulated usage, split by kind of token.
+    /// </summary>
+    /// <param name="model">The model the usage belongs to.</param>
+    /// <param name="costCalculator">The calculator that prices the tokens.</param>
+    /// <returns>The estimated cost by kind of token, in US dollars.</returns>
+    public CostBreakdown EstimateCostBreakdown(string model, CostCalculator costCalculator)
+    {
+        return costCalculator.EstimateCostBreakdown(model, Input, Output, CacheRead, CacheWrite5m, CacheWrite1h);
+    }
+
+    /// <summary>
     /// Adds the usage of one response to the running totals of its model.
     /// </summary>
     /// <param name="byModel">The running totals per model.</param>
@@ -101,6 +113,23 @@ internal sealed class ModelTokenTotals
     /// <returns>The summed estimated cost, in US dollars.</returns>
     public static decimal EstimateCost(Dictionary<string, ModelTokenTotals> byModel, CostCalculator costCalculator)
     {
-        return byModel.Sum(pair => pair.Value.EstimateCost(pair.Key, costCalculator));
+        return EstimateCostBreakdown(byModel, costCalculator).Total;
+    }
+
+    /// <summary>
+    /// Estimates the cost of the usage of several models, split by kind of token.
+    /// </summary>
+    /// <param name="byModel">The running totals per model.</param>
+    /// <param name="costCalculator">The calculator that prices the tokens.</param>
+    /// <returns>The summed estimated cost by kind of token, in US dollars.</returns>
+    public static CostBreakdown EstimateCostBreakdown(Dictionary<string, ModelTokenTotals> byModel, CostCalculator costCalculator)
+    {
+        var breakdown = default(CostBreakdown);
+        foreach (var (model, totals) in byModel)
+        {
+            breakdown += totals.EstimateCostBreakdown(model, costCalculator);
+        }
+
+        return breakdown;
     }
 }

@@ -1,4 +1,5 @@
 using AIUsageMonitor.Core.Providers.Claude.Models;
+using System.Text.Json.Serialization;
 
 namespace AIUsageMonitor.Core.Models;
 
@@ -157,16 +158,52 @@ public enum WindowConfidence
 /// <param name="Messages">The total number of messages sent within the window.</param>
 /// <param name="TotalTokens">The total number of tokens used within the window.</param>
 /// <param name="TokensByModel">A mapping of model name to the number of tokens consumed by that model.</param>
-/// <param name="EstimatedCost">The estimated monetary cost of usage within the window.</param>
 /// <param name="Confidence">How much the window boundaries can be trusted.</param>
+/// <param name="CostBreakdown">
+/// The estimated monetary cost of usage within the window, split by kind of token. Lets a caller weight the kinds
+/// differently, because the usage quota of a subscription does not follow the API price of each kind. It is the only
+/// record of the cost, so <see cref="EstimatedCost"/> cannot disagree with it.
+/// </param>
 public sealed record UsageWindowSummary(
     DateTimeOffset? WindowStart,
     DateTimeOffset? ResetsAt,
     int Messages,
     long TotalTokens,
     Dictionary<string, long> TokensByModel,
-    decimal EstimatedCost,
-    WindowConfidence Confidence);
+    WindowConfidence Confidence,
+    CostBreakdown CostBreakdown)
+{
+    /// <summary>
+    /// Gets the estimated monetary cost of usage within the window, at API list prices.
+    /// </summary>
+    public decimal EstimatedCost => CostBreakdown.Total;
+}
+
+/// <summary>
+/// The estimated cost of some usage, split by kind of token. Every figure is in US dollars at API list prices.
+/// </summary>
+/// <param name="Input">The cost of the uncached input tokens.</param>
+/// <param name="Output">The cost of the output tokens, including thinking.</param>
+/// <param name="CacheRead">The cost of the tokens read from the prompt cache.</param>
+/// <param name="CacheWrite">The cost of the tokens written to the prompt cache, of both lifetimes.</param>
+public readonly record struct CostBreakdown(decimal Input, decimal Output, decimal CacheRead, decimal CacheWrite)
+{
+    /// <summary>
+    /// Gets the cost of all kinds of token together. It is derived from the four amounts, so it is not serialized.
+    /// </summary>
+    [JsonIgnore]
+    public decimal Total => Input + Output + CacheRead + CacheWrite;
+
+    /// <summary>
+    /// Adds two breakdowns kind by kind.
+    /// </summary>
+    /// <param name="left">The first breakdown.</param>
+    /// <param name="right">The second breakdown.</param>
+    /// <returns>The breakdown of the combined usage.</returns>
+    public static CostBreakdown operator +(CostBreakdown left, CostBreakdown right)
+        => new(left.Input + right.Input, left.Output + right.Output,
+            left.CacheRead + right.CacheRead, left.CacheWrite + right.CacheWrite);
+}
 
 /// <summary>
 /// Represents aggregated statistics across all sessions.

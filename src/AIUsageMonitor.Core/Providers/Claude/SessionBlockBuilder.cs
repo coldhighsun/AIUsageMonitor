@@ -86,7 +86,7 @@ public sealed class SessionBlockBuilder(
 
         if (scanStart is null)
         {
-            return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
+            return new(null, null, 0, 0, [], WindowConfidence.Unknown, default);
         }
 
         var flooredStart = FloorToTenMinutes(scanStart.Value);
@@ -95,7 +95,7 @@ public sealed class SessionBlockBuilder(
         // Judged against the floored reset time that is displayed, so a window is never reported with a reset in the past.
         if (now >= estimatedResetsAt)
         {
-            return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
+            return new(null, null, 0, 0, [], WindowConfidence.Unknown, default);
         }
 
         // Flooring may reach back before a known reset, but activity before it belongs to the previous window.
@@ -360,9 +360,9 @@ public sealed class SessionBlockBuilder(
             tokensByModel[model] = tokensByModel.GetValueOrDefault(model) + tokens;
         }
 
-        var estimatedCost = ModelTokenTotals.EstimateCost(modelUsage, costCalculator);
+        var costBreakdown = ModelTokenTotals.EstimateCostBreakdown(modelUsage, costCalculator);
 
-        return new(windowStart, resetsAt, messageCount, totalTokens, tokensByModel, estimatedCost, confidence);
+        return new(windowStart, resetsAt, messageCount, totalTokens, tokensByModel, confidence, costBreakdown);
     }
 
     private readonly record struct Message(DateTimeOffset Timestamp, SessionMessage Data);

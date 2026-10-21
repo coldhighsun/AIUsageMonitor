@@ -294,13 +294,13 @@ public class DataServiceTests : IDisposable
         public UsageWindowSummary GetCurrentSessionWindow(DateTimeOffset? sessionResetAt, IProgress<int>? progress = null)
         {
             LastSessionResetAt = sessionResetAt;
-            return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
+            return new(null, null, 0, 0, [], WindowConfidence.Unknown, default);
         }
 
         public UsageWindowSummary GetWeekWindow((DayOfWeek Day, TimeSpan TimeOfDay)? anchor, IProgress<int>? progress = null)
         {
             LastWeekAnchor = anchor;
-            return new(null, null, 0, 0, [], 0m, WindowConfidence.Unknown);
+            return new(null, null, 0, 0, [], WindowConfidence.Unknown, default);
         }
     }
 }

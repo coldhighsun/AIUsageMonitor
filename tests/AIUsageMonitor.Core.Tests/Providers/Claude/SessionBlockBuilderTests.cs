@@ -59,6 +59,24 @@ public class SessionBlockBuilderTests : IDisposable
         Assert.Equal(expectedStart.AddHours(5), result.ResetsAt);
     }
 
+    /// <summary>
+    /// Verifies that the window reports its cost per kind of token and that the parts add up to the estimated cost.
+    /// </summary>
+    [Fact]
+    public void BuildCurrentSessionWindow_WithUsage_BreaksTheCostDownByKindOfToken()
+    {
+        var now = DateTimeOffset.Now;
+        File.WriteAllLines(_tempFile, [BuildLine(now.AddMinutes(-5), "req-1", inputTokens: 1_000_000, outputTokens: 1_000_000)]);
+
+        var result = _sut.BuildCurrentSessionWindow([_tempFile], sessionResetAt: null);
+
+        Assert.Equal(2m, result.CostBreakdown.Input);
+        Assert.Equal(10m, result.CostBreakdown.Output);
+        Assert.Equal(0m, result.CostBreakdown.CacheRead);
+        Assert.Equal(0m, result.CostBreakdown.CacheWrite);
+        Assert.Equal(result.EstimatedCost, result.CostBreakdown.Total);
+    }
+
     [Fact]
     public void BuildCurrentSessionWindow_NoResetTimeAndBlockWindowElapsed_ReportsUnknownEvenWithRecentActivity()
     {
