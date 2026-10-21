@@ -34,12 +34,17 @@ public static class WatchCommand
         };
         var (sessionResetOption, weekResetOption) = LimitsAnchors.CreateOptions();
         var (sessionTokenProgressOption, weekTokenProgressOption) = LimitsAnchors.CreateTokenProgressOptions();
+        var cacheReadWeightOption = QuotaCost.CreateOption();
+        var resetCacheReadWeightOption = QuotaCost.CreateResetOption();
         command.Options.Add(viewOption);
         command.Options.Add(intervalOption);
         command.Options.Add(sessionResetOption);
         command.Options.Add(weekResetOption);
         command.Options.Add(sessionTokenProgressOption);
         command.Options.Add(weekTokenProgressOption);
+        command.Options.Add(cacheReadWeightOption);
+        command.Options.Add(resetCacheReadWeightOption);
+        QuotaCost.AddConflictValidator(command, cacheReadWeightOption, resetCacheReadWeightOption);
 
         command.SetAction(async (parseResult, ct) =>
         {
@@ -52,8 +57,12 @@ public static class WatchCommand
 
             DateTimeOffset? effectiveSessionResetAt = null;
             (DayOfWeek Day, TimeSpan TimeOfDay)? effectiveWeekResetAt = null;
-            decimal? effectiveSessionTokenLimit = null;
-            decimal? effectiveWeekTokenLimit = null;
+            UsageCalibration? effectiveSessionCalibration = null;
+            UsageCalibration? effectiveWeekCalibration = null;
+            var cacheReadWeight = QuotaCost.DefaultCacheReadWeight;
+
+            // Notices about the limits, shown in the view because anything printed is cleared with the screen.
+            var limitsNotices = new List<string>();
             UsageWindowSummary? lastSessionWindow = null;
             UsageWindowSummary? lastWeekWindow = null;
 
@@ -89,22 +98,23 @@ public static class WatchCommand
                 lastSessionWindow = dataService.GetCurrentSessionWindow(effectiveSessionResetAt);
                 lastWeekWindow = dataService.GetWeekWindow(effectiveWeekResetAt);
 
-                if (!LimitsAnchors.ResolveTokenLimit(
-                        sessionTokenProgressArg, saved.SessionCostLimit, lastSessionWindow.EstimatedCost, "Session",
-                        out effectiveSessionTokenLimit, out error)
-                    || !LimitsAnchors.ResolveTokenLimit(
-                        weekTokenProgressArg, saved.WeekCostLimit, lastWeekWindow.EstimatedCost, "Weekly",
-                        out effectiveWeekTokenLimit, out error))
+                // The weight is tuned by trial, so what is saved is the reading each limit is derived from (see
+                // UsageCalibration), not the limit: changing the weight then re-derives the limits without asking again.
+                var startup = LimitsStartup.Resolve(
+                    saved, sessionTokenProgressArg, weekTokenProgressArg,
+                    parseResult.GetValue(cacheReadWeightOption), parseResult.GetValue(resetCacheReadWeightOption),
+                    lastSessionWindow.CostBreakdown, lastWeekWindow.CostBreakdown, Console.IsInputRedirected);
+                if (startup.Error is not null)
                 {
-                    AnsiConsole.MarkupLine(ConsoleMarkup.Red(error!));
+                    AnsiConsole.MarkupLine(ConsoleMarkup.Red(startup.Error));
                     return 1;
                 }
 
-                LimitsSettingsStore.SaveOrWarn(saved with
-                {
-                    SessionCostLimit = effectiveSessionTokenLimit,
-                    WeekCostLimit = effectiveWeekTokenLimit
-                });
+                cacheReadWeight = startup.CacheReadWeight;
+                effectiveSessionCalibration = startup.SessionCalibration;
+                effectiveWeekCalibration = startup.WeekCalibration;
+                limitsNotices.AddRange(startup.Notices);
+                LimitsSettingsStore.SaveOrWarn(startup.ToSave);
             }
 
             var recalibrationEnabled = view == "limits" && !Console.IsInputRedirected;
@@ -144,30 +154,20 @@ public static class WatchCommand
                 return SpectreRenderer.BuildUsageLimits(
                     lastSessionWindow,
                     lastWeekWindow,
-                    effectiveSessionTokenLimit,
-                    effectiveWeekTokenLimit,
+                    effectiveSessionCalibration,
+                    effectiveWeekCalibration,
                     recalibrationEnabled,
-                    effectiveSessionResetAt is not null);
+                    effectiveSessionResetAt is not null,
+                    cacheReadWeight);
             }
 
             ClearScreen();
 
             IRenderable WithUpdateNotice(IRenderable content)
-            {
-                var rows = new List<IRenderable> { content };
-                if (updateNotice is not null)
-                {
-                    rows.Add(updateNotice);
-                }
-                if (versionFooter is not null)
-                {
-                    rows.Add(versionFooter);
-                }
-                return rows.Count == 1 ? content : new Rows(rows);
-            }
+                => SpectreRenderer.WithNotices(content, limitsNotices, updateNotice, versionFooter);
 
             var current = view == "limits"
-                ? WithUpdateNotice(SpectreRenderer.BuildUsageLimits(lastSessionWindow!, lastWeekWindow!, effectiveSessionTokenLimit, effectiveWeekTokenLimit, recalibrationEnabled, effectiveSessionResetAt is not null))
+                ? WithUpdateNotice(SpectreRenderer.BuildUsageLimits(lastSessionWindow!, lastWeekWindow!, effectiveSessionCalibration, effectiveWeekCalibration, recalibrationEnabled, effectiveSessionResetAt is not null, cacheReadWeight))
                 : ProgressReporter.Run("Loading usage data...", BuildCurrent);
 
             while (!ct.IsCancellationRequested)
@@ -198,15 +198,18 @@ public static class WatchCommand
                 }
 
                 ClearScreen();
+                limitsNotices.Clear();
                 AnsiConsole.MarkupLine("[grey]Press Enter on any prompt to keep using a local estimate or the current value.[/]");
-                (effectiveSessionResetAt, effectiveWeekResetAt, effectiveSessionTokenLimit, effectiveWeekTokenLimit) = LimitsAnchors.PromptAndSaveBoth(
+                (effectiveSessionResetAt, effectiveWeekResetAt, effectiveSessionCalibration, effectiveWeekCalibration) = LimitsAnchors.PromptAndSaveBoth(
                     (sessionReset, weekReset) => ProgressReporter.Run("Loading usage data...", p =>
                     {
                         lastSessionWindow = dataService.GetCurrentSessionWindow(sessionReset, p);
                         lastWeekWindow = dataService.GetWeekWindow(weekReset, p);
-                        return (lastSessionWindow.EstimatedCost, lastWeekWindow.EstimatedCost);
+                        return (lastSessionWindow.CostBreakdown, lastWeekWindow.CostBreakdown);
                     }),
-                    LimitsAnchors.SelectShownSessionReset(lastSessionWindow, DateTimeOffset.Now));
+                    LimitsAnchors.SelectShownSessionReset(lastSessionWindow, DateTimeOffset.Now),
+                    cacheReadWeight,
+                    limitsNotices);
                 ClearScreen();
                 current = ProgressReporter.Run("Loading usage data...", BuildCurrent);
             }
