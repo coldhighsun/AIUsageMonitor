@@ -16,6 +16,13 @@ namespace AIUsageMonitor.Cli.Commands;
 internal static class LimitsAnchors
 {
     private const string SessionResetFormat = "HH:mm";
+
+    /// <summary>
+    /// The text that tells a user which usage percentages are accepted.
+    /// </summary>
+    private static readonly string PercentRangeHint = string.Create(
+        CultureInfo.InvariantCulture, $"Expected a percentage between {UsageCalibration.MinPercent} and {UsageCalibration.MaxPercent:0}, e.g. 32.");
+
     private static readonly TimeSpan SessionWindowDuration = TimeSpan.FromHours(5);
 
     /// <summary>
@@ -37,17 +44,17 @@ internal static class LimitsAnchors
     /// <summary>
     /// Creates the shared <c>--session-token-progress</c>/<c>--week-token-progress</c> options. These
     /// take a *percentage* (what Claude itself displays), not a token count - see
-    /// <see cref="ResolveTokenLimit"/> for how that percentage is turned into a token limit.
+    /// <see cref="ResolveCalibration"/> for how that percentage is turned into a calibration.
     /// </summary>
     internal static (Option<double?> SessionTokenProgress, Option<double?> WeekTokenProgress) CreateTokenProgressOptions()
     {
         var sessionTokenProgressOption = new Option<double?>("--session-token-progress")
         {
-            Description = "Current session usage percentage as shown on Claude's own usage page (Settings > Usage, or /usage in Claude Code), e.g. 32 for '32%'. Combined with the estimated cost accrued so far this session to derive a usage budget, which is then used to track the usage-progress bar live. Only used when --view limits."
+            Description = "Current session usage percentage as shown on Claude's own usage page (Settings > Usage, or /usage in Claude Code), e.g. 32 for '32%'. Combined with the quota-weighted cost (see --cache-read-weight) accrued so far this session to derive a usage budget, which is then used to track the usage-progress bar live. Only used when --view limits."
         };
         var weekTokenProgressOption = new Option<double?>("--week-token-progress")
         {
-            Description = "Current weekly usage percentage as shown on Claude's own usage page, e.g. 32 for '32%'. Combined with the estimated cost accrued so far this week to derive a usage budget. Only used when --view limits."
+            Description = "Current weekly usage percentage as shown on Claude's own usage page, e.g. 32 for '32%'. Combined with the quota-weighted cost (see --cache-read-weight) accrued so far this week to derive a usage budget. Only used when --view limits."
         };
         return (sessionTokenProgressOption, weekTokenProgressOption);
     }
@@ -63,17 +70,21 @@ internal static class LimitsAnchors
     /// <param name="costSoFarFor">
     /// Computes the estimated session and week cost accrued so far for windows pinned to the reset
     /// times just entered. It is called after the reset prompts and before the percentage prompts,
-    /// because the limit is derived as <c>cost / percent</c> and the cost of the window that was
+    /// because the limit is derived from <c>cost / percent</c> and the cost of the window that was
     /// on screen before recalibrating (pinned to the old reset times) differs from the cost of the
     /// window the new reset times select.
     /// </param>
     /// <param name="currentSessionResetAt">The still-upcoming session reset currently shown (confirmed or locally estimated), offered as the prompt's default. Pressing Enter accepts it and pins it as a confirmed anchor.</param>
-    /// <returns>The resolved session/weekly reset times and session/weekly usage (cost) limits.</returns>
+    /// <param name="cacheReadWeight">The cache read weight in effect, used to show the percentage a kept calibration currently implies. The saved weight setting is carried over unchanged.</param>
+    /// <param name="notices">Receives the plain-text notices that explain why a typed percentage was not used, for the caller to show in its view, because anything printed here is cleared with the screen right away.</param>
+    /// <returns>The resolved session/weekly reset times and session/weekly usage calibrations.</returns>
     internal static (
         DateTimeOffset? SessionResetAt, (DayOfWeek Day, TimeSpan TimeOfDay)? WeekResetAt,
-        decimal? SessionCostLimit, decimal? WeekCostLimit) PromptAndSaveBoth(
-        Func<DateTimeOffset?, (DayOfWeek Day, TimeSpan TimeOfDay)?, (decimal Session, decimal Week)> costSoFarFor,
-        DateTimeOffset? currentSessionResetAt)
+        UsageCalibration? SessionCalibration, UsageCalibration? WeekCalibration) PromptAndSaveBoth(
+        Func<DateTimeOffset?, (DayOfWeek Day, TimeSpan TimeOfDay)?, (CostBreakdown Session, CostBreakdown Week)> costSoFarFor,
+        DateTimeOffset? currentSessionResetAt,
+        decimal cacheReadWeight,
+        ICollection<string> notices)
     {
         var saved = LimitsSettingsStore.Load();
 
@@ -82,15 +93,15 @@ internal static class LimitsAnchors
         var (weekResetAt, weekResetRaw) = PromptForWeekReset(saved.WeekResetAt);
 
         var (sessionCostSoFar, weekCostSoFar) = costSoFarFor(sessionResetAt, weekResetAt);
-        var sessionCostLimit = PromptForCostLimit(
-            saved.SessionCostLimit, sessionCostSoFar,
+        var sessionCalibration = PromptForCalibration(
+            UsageCalibration.OrNullIfInvalid(saved.SessionCalibration), sessionCostSoFar, cacheReadWeight, "Session", notices,
             "[yellow]Session usage %[/] (from /usage), e.g. 32, Enter to keep:");
-        var weekCostLimit = PromptForCostLimit(
-            saved.WeekCostLimit, weekCostSoFar,
+        var weekCalibration = PromptForCalibration(
+            UsageCalibration.OrNullIfInvalid(saved.WeekCalibration), weekCostSoFar, cacheReadWeight, "Weekly", notices,
             "[yellow]Weekly usage %[/] (from /usage), e.g. 32, Enter to keep:");
 
-        LimitsSettingsStore.SaveOrWarn(new(sessionResetAt, weekResetRaw, sessionCostLimit, weekCostLimit));
-        return (sessionResetAt, weekResetAt, sessionCostLimit, weekCostLimit);
+        LimitsSettingsStore.SaveOrWarn(new(sessionResetAt, weekResetRaw, sessionCalibration, weekCalibration, saved.CacheReadWeight));
+        return (sessionResetAt, weekResetAt, sessionCalibration, weekCalibration);
     }
 
     /// <summary>
@@ -118,51 +129,64 @@ internal static class LimitsAnchors
         => window?.ResetsAt is { } shown && shown > now ? shown : null;
 
     /// <summary>
-    /// Resolves the usage (cost) limit for one usage window (session or week) from a usage
+    /// Resolves the usage calibration for one usage window (session or week) from a usage
     /// *percentage* - either an explicit CLI argument or (in an interactive terminal) a prompt -
-    /// combined with the estimated cost this tool has computed for that window so far:
-    /// <c>limit = costSoFar / (percent / 100)</c>. Cost already weights tokens by model and type
+    /// paired with the cost this tool has computed for that window so far. The limit is later derived
+    /// from it as <c>limit = quotaCost / (percent / 100)</c> (see <see cref="UsageCalibration"/> and
+    /// <see cref="QuotaCost"/>). Cost already weights tokens by model and type
     /// (an Opus token costs far more toward the real limit than a Haiku one), which tracks Anthropic's
     /// actual usage gating much more closely than a flat token count would. Claude itself never shows
     /// the underlying limit, only a percentage, so this is the only way to derive one locally. The
-    /// derived limit (not the percentage) is what gets persisted and returned, so future refreshes can
-    /// keep tracking the usage-progress bar live against it without asking again - until the user
-    /// recalibrates (e.g. because the account's limit changed).
+    /// calibration (not the derived limit) is what gets persisted, so future refreshes keep tracking
+    /// the usage-progress bar live against it without asking again, and the cache read weight can be
+    /// tuned without reading the percentage again - until the user recalibrates (e.g. because the
+    /// account's limit changed).
     /// </summary>
     /// <param name="progressPercentArg">The raw <c>--session-token-progress</c>/<c>--week-token-progress</c> argument, if provided.</param>
-    /// <param name="savedLimit">The previously persisted cost limit for this window, if any.</param>
-    /// <param name="costSoFar">The estimated cost this tool has computed for the window so far.</param>
+    /// <param name="saved">The previously persisted calibration for this window, if any.</param>
+    /// <param name="costSoFar">The estimated cost this tool has computed for the window so far, by kind of token.</param>
+    /// <param name="cacheReadWeight">The cache read weight in effect, used for the percentage shown as the prompt's default.</param>
     /// <param name="promptLabel">A short label (e.g. "Session", "Weekly") used in the interactive prompt text.</param>
-    /// <param name="costLimit">The resolved cost limit, or <see langword="null"/> if not configured.</param>
+    /// <param name="notices">Receives a plain-text notice when a percentage is not used because it cannot be calibrated against the window.</param>
+    /// <param name="inputRedirected">Whether there is no interactive terminal to prompt in; then a missing percentage is simply left unset.</param>
+    /// <param name="calibration">The resolved calibration, or <see langword="null"/> if not configured.</param>
     /// <param name="error">An error message describing why resolution failed, if it did.</param>
     /// <returns><see langword="true"/> if resolution succeeded; <see langword="false"/> if an explicit argument was invalid.</returns>
-    internal static bool ResolveTokenLimit(
-        double? progressPercentArg, decimal? savedLimit, decimal costSoFar, string promptLabel,
-        out decimal? costLimit, out string? error)
+    internal static bool ResolveCalibration(
+        double? progressPercentArg, UsageCalibration? saved, CostBreakdown costSoFar, decimal cacheReadWeight,
+        string promptLabel, ICollection<string> notices, bool inputRedirected, out UsageCalibration? calibration, out string? error)
     {
         error = null;
 
         if (progressPercentArg is not null)
         {
-            if (progressPercentArg <= 0)
+            if (ValidatePercentArgument(progressPercentArg) is { } invalid)
             {
-                costLimit = null;
-                error = $"Invalid usage percentage '{progressPercentArg}'. Expected a percentage greater than 0.";
+                calibration = null;
+                error = invalid;
                 return false;
             }
 
-            costLimit = DeriveCostLimit(costSoFar, progressPercentArg.Value);
+            if (!HasCountedCost(costSoFar, cacheReadWeight))
+            {
+                // A reading taken while nothing is counted cannot give a limit, and must not replace one that works.
+                notices.Add(DescribeNothingCounted(promptLabel, costSoFar, cacheReadWeight));
+                calibration = saved;
+                return true;
+            }
+
+            calibration = new UsageCalibration(costSoFar, progressPercentArg.Value);
             return true;
         }
 
-        if (savedLimit is not null || Console.IsInputRedirected)
+        if (saved is not null || inputRedirected)
         {
-            costLimit = savedLimit;
+            calibration = saved;
             return true;
         }
 
-        costLimit = PromptForCostLimit(
-            currentLimit: null, costSoFar,
+        calibration = PromptForCalibration(
+            current: null, costSoFar, cacheReadWeight, promptLabel, notices,
             $"[yellow]{promptLabel} usage %[/] (from /usage), e.g. 32, Enter to skip:");
         return true;
     }
@@ -283,7 +307,7 @@ internal static class LimitsAnchors
 
         if (explicitlyProvided || promptedForAnything)
         {
-            // Token limits are resolved separately (see ResolveTokenLimit), since deriving them needs
+            // Token limits are resolved separately (see ResolveCalibration), since deriving them needs
             // the tokens counted for the window - which isn't known until after the reset times below
             // are settled. Carry the currently saved values through unchanged.
             LimitsSettingsStore.SaveOrWarn(saved with
@@ -299,14 +323,45 @@ internal static class LimitsAnchors
     }
 
     /// <summary>
-    /// Derives a cost limit from the estimated cost accrued so far and the percentage of that limit
-    /// it represents, as read off Claude's own usage display. Never returns less than a cent, since a
-    /// 0 limit would later be divided into and would also get persisted as <c>savedLimit</c>, silently
-    /// breaking the usage-progress bar until the user recalibrates - most commonly when costSoFar
-    /// is still 0 right after the window has reset.
+    /// Checks a <c>--session-token-progress</c>/<c>--week-token-progress</c> argument without resolving anything, so that both can be
+    /// checked before the first one prompts for anything.
     /// </summary>
-    internal static decimal DeriveCostLimit(decimal costSoFar, double progressPercent)
-        => Math.Max(0.01m, costSoFar / (decimal)(progressPercent / 100));
+    /// <param name="percent">The raw argument, if provided.</param>
+    /// <returns>An error message if the argument is given and is not a usable percentage; otherwise <see langword="null"/>.</returns>
+    internal static string? ValidatePercentArgument(double? percent)
+        => percent is { } value && !UsageCalibration.IsValidPercent(value)
+            ? string.Create(CultureInfo.InvariantCulture, $"Invalid usage percentage '{value}'. {PercentRangeHint}")
+            : null;
+
+    /// <summary>
+    /// Determines whether a window has any cost that counts toward the quota, which a usage percentage needs to be
+    /// calibrated against.
+    /// </summary>
+    /// <param name="costSoFar">The estimated cost accrued for the window so far, by kind of token.</param>
+    /// <param name="cacheReadWeight">The cache read weight in effect.</param>
+    /// <returns><see langword="true"/> if the weighted cost is above zero.</returns>
+    private static bool HasCountedCost(CostBreakdown costSoFar, decimal cacheReadWeight)
+        => QuotaCost.Compute(costSoFar, cacheReadWeight) > 0m;
+
+    /// <summary>
+    /// Explains why a usage percentage cannot be calibrated against a window that has no cost counting toward the quota.
+    /// The cause is either that the window has no usage yet, or that the cache read weight makes all of its usage count as zero.
+    /// </summary>
+    /// <param name="label">A short label (e.g. "Session", "Weekly") naming the window.</param>
+    /// <param name="costSoFar">The estimated cost accrued for the window so far, by kind of token.</param>
+    /// <param name="cacheReadWeight">The cache read weight in effect.</param>
+    /// <returns>The plain-text sentence.</returns>
+    internal static string DescribeNothingCounted(string label, CostBreakdown costSoFar, decimal cacheReadWeight)
+    {
+        var hasUsage = costSoFar.Total > 0m;
+        var reason = hasUsage
+            ? $"all of its usage counts as zero under a cache read weight of {cacheReadWeight:0.##}; raise --cache-read-weight to calibrate"
+            : "nothing has been counted for it yet; try again once it has usage";
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{label}: the usage percentage was not used, because {reason}. The saved reading, if any, is kept.");
+    }
 
     /// <summary>
     /// Prompts for a string with <paramref name="defaultText"/> as the value Enter returns (so a
@@ -360,40 +415,50 @@ internal static class LimitsAnchors
     }
 
     /// <summary>
-    /// Prompts for a usage percentage and derives a cost limit from it and <paramref name="costSoFar"/>.
-    /// The prompt's default is the percentage <paramref name="currentLimit"/> currently implies (given
-    /// <paramref name="costSoFar"/>), so pressing Enter keeps the existing limit unchanged rather
-    /// than re-deriving it from a rounded default percentage.
+    /// Prompts for a usage percentage and pairs it with <paramref name="costSoFar"/> as a new calibration.
+    /// The prompt's default is the percentage <paramref name="current"/> currently implies (given
+    /// <paramref name="costSoFar"/>), so pressing Enter keeps the existing calibration unchanged rather
+    /// than re-deriving it from a rounded default percentage. A blank answer keeps it too, and so does a percentage
+    /// typed while nothing is counted for the window, which could not be calibrated against (the reason goes to
+    /// <paramref name="notices"/>).
     /// </summary>
-    /// <param name="currentLimit">The currently configured cost limit, if any.</param>
-    /// <param name="costSoFar">The estimated cost accrued for the window so far.</param>
+    /// <param name="current">The currently configured calibration, if any.</param>
+    /// <param name="costSoFar">The estimated cost accrued for the window so far, by kind of token.</param>
+    /// <param name="cacheReadWeight">The cache read weight in effect.</param>
+    /// <param name="label">A short label (e.g. "Session", "Weekly") naming the window in notices.</param>
+    /// <param name="notices">Receives a plain-text notice when a typed percentage is not used.</param>
     /// <param name="promptText">The prompt text to display.</param>
-    private static decimal? PromptForCostLimit(decimal? currentLimit, decimal costSoFar, string promptText)
+    private static UsageCalibration? PromptForCalibration(
+        UsageCalibration? current, CostBreakdown costSoFar, decimal cacheReadWeight, string label,
+        ICollection<string> notices, string promptText)
     {
-        var defaultText = currentLimit is { } limit and > 0
-            ? (costSoFar * 100 / limit).ToString("0.##", CultureInfo.InvariantCulture)
+        var defaultText = current?.PercentOf(costSoFar, cacheReadWeight) is { } implied
+            ? implied.ToString("0.##", CultureInfo.InvariantCulture)
             : "";
 
         while (true)
         {
             var input = Ask(promptText, defaultText);
 
-            if (string.IsNullOrWhiteSpace(input))
+            // Enter always keeps what is there, even when no percentage can be shown as the default.
+            if (string.IsNullOrWhiteSpace(input) || (input == defaultText && current is not null))
             {
-                return null;
+                return current;
             }
 
-            if (input == defaultText && currentLimit is not null)
+            if (double.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+                && UsageCalibration.IsValidPercent(parsed))
             {
-                return currentLimit;
+                if (!HasCountedCost(costSoFar, cacheReadWeight))
+                {
+                    notices.Add(DescribeNothingCounted(label, costSoFar, cacheReadWeight));
+                    return current;
+                }
+
+                return new UsageCalibration(costSoFar, parsed);
             }
 
-            if (double.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed > 0)
-            {
-                return DeriveCostLimit(costSoFar, parsed);
-            }
-
-            AnsiConsole.MarkupLine("[red]Invalid value. Expected a percentage greater than 0, e.g. 32.[/]");
+            AnsiConsole.MarkupLine(ConsoleMarkup.Red($"Invalid value. {PercentRangeHint}"));
         }
     }
 

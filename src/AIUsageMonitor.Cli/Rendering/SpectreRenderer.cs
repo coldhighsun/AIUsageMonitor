@@ -389,16 +389,17 @@ public static class SpectreRenderer
     /// </summary>
     /// <param name="sessionWindow">The current 5-hour session window data to render.</param>
     /// <param name="weekWindow">The current weekly window data to render.</param>
-    /// <param name="sessionTokenLimit">
-    /// The account's session usage limit, expressed as an estimated USD cost budget, or
+    /// <param name="sessionCalibration">
+    /// The reading the account's session usage limit is derived from (see <see cref="UsageCalibration"/>), or
     /// <see langword="null"/> if not configured (in which case the usage-progress column is left
-    /// blank for that row). Cost already weights tokens by model and type, which tracks Anthropic's
-    /// real usage gating far more closely than a flat token count. Claude itself only ever shows a
-    /// usage *percentage*, never this limit, so it is derived once from a percentage the user read
-    /// off Claude's usage display - see <see cref="Commands.LimitsAnchors.ResolveTokenLimit"/> - and
-    /// then used here to track <paramref name="sessionWindow"/>'s live estimated cost against it.
+    /// blank for that row). The limit is a quota-weighted USD cost budget (see <see cref="Commands.QuotaCost"/>);
+    /// cost already weights tokens by model and type, which tracks Anthropic's real usage gating far more closely
+    /// than a flat token count. Claude itself only ever shows a usage *percentage*, never this limit, so it is
+    /// derived from a percentage the user read off Claude's usage display - see
+    /// <see cref="Commands.LimitsAnchors.ResolveCalibration"/> - and then used here to track
+    /// <paramref name="sessionWindow"/>'s live weighted cost against it.
     /// </param>
-    /// <param name="weekTokenLimit">The account's weekly usage (cost) limit, or <see langword="null"/> if not configured.</param>
+    /// <param name="weekCalibration">The reading the account's weekly usage limit is derived from, or <see langword="null"/> if not configured.</param>
     /// <param name="recalibrationAvailable">
     /// Whether the "press r" hotkey hint applies, i.e. whether the caller is actually watching for
     /// it (it does nothing outside an interactive <c>watch</c> session).
@@ -409,11 +410,15 @@ public static class SpectreRenderer
     /// idle account (no reset time known at all) apart from a session that just reset and is
     /// waiting for its first message.
     /// </param>
+    /// <param name="cacheReadWeight">
+    /// The share of the list price of cache-read tokens that counts toward the usage quota (see
+    /// <see cref="Commands.QuotaCost"/>). The usage-progress bar and the limits it is measured against use this weighted cost.
+    /// </param>
     /// <returns>An <see cref="IRenderable"/> representing both usage windows.</returns>
     public static IRenderable BuildUsageLimits(
         UsageWindowSummary sessionWindow, UsageWindowSummary weekWindow,
-        decimal? sessionTokenLimit = null, decimal? weekTokenLimit = null, bool recalibrationAvailable = true,
-        bool sessionResetConfigured = false)
+        UsageCalibration? sessionCalibration = null, UsageCalibration? weekCalibration = null, bool recalibrationAvailable = true,
+        bool sessionResetConfigured = false, decimal cacheReadWeight = Commands.QuotaCost.DefaultCacheReadWeight)
     {
         var table = new Table().Border(TableBorder.Rounded).Title("[bold yellow]Usage Limits[/]").ShowRowSeparators();
         table.AddColumn(HeaderColumn("Window", Justify.Left));
@@ -425,10 +430,18 @@ public static class SpectreRenderer
         table.AddColumn(HeaderColumn("Time Progress", Justify.Center));
         table.AddColumn(HeaderColumn("Usage Progress", Justify.Center));
 
-        var sessionFractions = AddRow(table, "Session (5h)", sessionWindow, sessionTokenLimit);
-        AddRow(table, "Week", weekWindow, weekTokenLimit);
+        var sessionFractions = AddRow(table, "Session (5h)", sessionWindow, sessionCalibration, cacheReadWeight);
+        AddRow(table, "Week", weekWindow, weekCalibration, cacheReadWeight);
 
         var notes = new List<IRenderable> { table };
+
+        foreach (var (label, window) in new[] { ("Session", sessionWindow), ("Week", weekWindow) })
+        {
+            if (FormatCostSplit(label, window, cacheReadWeight) is { } split)
+            {
+                notes.Add(new Markup(split));
+            }
+        }
 
         if (sessionFractions is { } fractions && FormatPaceHint(fractions.Time, fractions.Token) is { } paceHint)
         {
@@ -466,14 +479,15 @@ public static class SpectreRenderer
 
         return notes.Count == 1 ? table : new Rows(notes);
 
-        static (double Time, double Token)? AddRow(Table table, string label, UsageWindowSummary window, decimal? costLimit)
+        static (double Time, double Token)? AddRow(
+            Table table, string label, UsageWindowSummary window, UsageCalibration? calibration, decimal cacheReadWeight)
         {
             var (tokens, messages, cost) = window.WindowStart is null
                 ? ("—", "—", "—")
                 : (FormatTokens(window.TotalTokens), FormatCount(window.Messages), FormatCost(window.EstimatedCost));
 
-            var tokenFraction = window.WindowStart is not null && costLimit is { } limit and > 0
-                ? (double)(window.EstimatedCost / limit)
+            var tokenFraction = window.WindowStart is not null && calibration?.DeriveLimit(cacheReadWeight) is { } limit
+                ? (double)(Commands.QuotaCost.Compute(window.CostBreakdown, cacheReadWeight) / limit)
                 : (double?)null;
             var tokenProgress = tokenFraction is { } tf ? FormatProgressBar(tf) : "—";
 
@@ -505,6 +519,57 @@ public static class SpectreRenderer
                 ? null
                 : (timeFraction.Value, tokenFraction.Value);
         }
+    }
+
+    /// <summary>
+    /// Puts a view together with the notices that go under it: the limits notices, then the update notice and the version footer.
+    /// Notices are drawn in the view because anything printed to the console is cleared with the screen right away.
+    /// </summary>
+    /// <param name="content">The view itself.</param>
+    /// <param name="notices">Plain-text notices, drawn in yellow.</param>
+    /// <param name="updateNotice">The update notice, if there is a newer version.</param>
+    /// <param name="versionFooter">The version footer, if it applies.</param>
+    /// <returns>The view with everything under it, or <paramref name="content"/> itself when there is nothing to add.</returns>
+    public static IRenderable WithNotices(
+        IRenderable content, IEnumerable<string> notices, IRenderable? updateNotice, IRenderable? versionFooter)
+    {
+        var rows = new List<IRenderable> { content };
+        rows.AddRange(notices.Select(notice => new Markup(ConsoleMarkup.Colored("yellow", notice))));
+        if (updateNotice is not null)
+        {
+            rows.Add(updateNotice);
+        }
+
+        if (versionFooter is not null)
+        {
+            rows.Add(versionFooter);
+        }
+
+        return rows.Count == 1 ? content : new Rows(rows);
+    }
+
+    /// <summary>
+    /// Formats the line that shows which kinds of token the usage-progress bar of a window is made of, so the bar can be
+    /// compared with Claude's own percentage and the cache read weight tuned.
+    /// </summary>
+    /// <param name="label">The window's name, such as "Session".</param>
+    /// <param name="window">The window to describe.</param>
+    /// <param name="cacheReadWeight">The share of the cache-read cost that counts toward the quota.</param>
+    /// <returns>The markup of the line, or <see langword="null"/> if the window has no usage that counts.</returns>
+    internal static string? FormatCostSplit(string label, UsageWindowSummary window, decimal cacheReadWeight)
+    {
+        if (window.WindowStart is null || Commands.QuotaCost.Shares(window.CostBreakdown, cacheReadWeight) is not { } shares)
+        {
+            return null;
+        }
+
+        var counted = Commands.QuotaCost.Compute(window.CostBreakdown, cacheReadWeight);
+
+        return string.Create(CultureInfo.InvariantCulture,
+            $"[grey]{label} usage split: cache read {shares.CacheRead:0%} · output {shares.Output:0%} · "
+            + $"cache write {shares.CacheWrite:0%} · input {shares.Input:0%} "
+            + $"(the bar counts {FormatCost(counted)} of the {FormatCost(window.EstimatedCost)} list-price cost, "
+            + $"cache reads at {cacheReadWeight:0.##} of list price)[/]");
     }
 
     /// <summary>

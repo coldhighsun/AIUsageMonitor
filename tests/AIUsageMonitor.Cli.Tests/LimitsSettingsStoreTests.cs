@@ -1,4 +1,5 @@
 using AIUsageMonitor.Cli.Commands;
+using AIUsageMonitor.Core.Models;
 using Xunit;
 
 namespace AIUsageMonitor.Cli.Tests;
@@ -31,7 +32,8 @@ public class LimitsSettingsStoreTests : IDisposable
     public void Save_ThenLoad_RoundTripsAndLeavesNoTemporaryFile()
     {
         var path = Path.Combine(_dir, "limits-settings.json");
-        var settings = new LimitsSettings(new DateTimeOffset(2026, 10, 1, 18, 30, 0, TimeSpan.Zero), "Mon 09:00", 12.5m, 80m);
+        var settings = new LimitsSettings(new DateTimeOffset(2026, 10, 1, 18, 30, 0, TimeSpan.Zero), "Mon 09:00",
+            new UsageCalibration(new CostBreakdown(1m, 2m, 3m, 4m), 32), new UsageCalibration(new CostBreakdown(5m, 6m, 7m, 8m), 12.5), 0.1m);
 
         var saved = LimitsSettingsStore.Save(settings, path);
         var loaded = LimitsSettingsStore.Load(path);
@@ -39,6 +41,43 @@ public class LimitsSettingsStoreTests : IDisposable
         Assert.True(saved);
         Assert.Equal(settings, loaded);
         Assert.Equal([path], Directory.GetFiles(_dir));
+    }
+
+    /// <summary>
+    /// Verifies that a settings file written when the derived limits were stored keeps its reset times, exposes the old
+    /// limits only so they can be reported, and does not write them back once they are cleared.
+    /// </summary>
+    [Fact]
+    public void Load_FileWithDerivedLimitsFromAnOlderVersion_ReportsThemAndDropsThemOnSave()
+    {
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "limits-settings.json");
+        File.WriteAllText(path, """{"SessionResetAt":null,"WeekResetAt":"Mon 09:00","SessionCostLimit":12.5,"WeekCostLimit":80}""");
+
+        var loaded = LimitsSettingsStore.Load(path);
+        LimitsSettingsStore.Save(loaded with { SessionCostLimit = null, WeekCostLimit = null }, path);
+        var reloaded = LimitsSettingsStore.Load(path);
+
+        Assert.Equal("Mon 09:00", loaded.WeekResetAt);
+        Assert.True(loaded.HasLegacyLimits);
+        Assert.Null(loaded.SessionCalibration);
+        Assert.Null(loaded.WeekCalibration);
+        Assert.False(reloaded.HasLegacyLimits);
+        Assert.DoesNotContain("CostLimit", File.ReadAllText(path));
+    }
+
+    /// <summary>
+    /// Verifies that settings without any legacy limit never write the legacy properties.
+    /// </summary>
+    [Fact]
+    public void Save_SettingsWithoutLegacyLimits_DoesNotWriteThem()
+    {
+        var path = Path.Combine(_dir, "limits-settings.json");
+
+        LimitsSettingsStore.Save(LimitsSettings.Empty with { CacheReadWeight = 0.2m }, path);
+
+        Assert.DoesNotContain("CostLimit", File.ReadAllText(path));
+        Assert.False(LimitsSettingsStore.Load(path).HasLegacyLimits);
     }
 
     /// <summary>
@@ -112,5 +151,21 @@ public class LimitsSettingsStoreTests : IDisposable
         var parsed = LimitsAnchors.TryParseWeekReset(text, out _);
 
         Assert.False(parsed);
+    }
+
+    /// <summary>
+    /// Verifies that a calibration is saved as its four amounts and the percentage only, with the derived total left out,
+    /// and is read back unchanged.
+    /// </summary>
+    [Fact]
+    public void Save_Calibration_WritesTheAmountsWithoutTheDerivedTotalAndReadsThemBack()
+    {
+        var path = Path.Combine(_dir, "limits-settings.json");
+        var settings = LimitsSettings.Empty with { SessionCalibration = new UsageCalibration(new CostBreakdown(1m, 2m, 3m, 4m), 32) };
+
+        LimitsSettingsStore.Save(settings, path);
+
+        Assert.DoesNotContain("Total", File.ReadAllText(path));
+        Assert.Equal(settings, LimitsSettingsStore.Load(path));
     }
 }

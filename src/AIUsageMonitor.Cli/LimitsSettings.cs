@@ -1,6 +1,7 @@
 using AIUsageMonitor.Cli.Rendering;
 using Spectre.Console;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AIUsageMonitor.Cli;
 
@@ -10,26 +11,50 @@ namespace AIUsageMonitor.Cli;
 /// </summary>
 /// <param name="SessionResetAt">The real reset time of the current session window, if configured.</param>
 /// <param name="WeekResetAt">The real weekly reset time, as originally typed (e.g. "Mon 09:00"), if configured.</param>
-/// <param name="SessionCostLimit">
-/// The account's session (5h) usage limit, expressed as an estimated USD cost budget rather than a
-/// raw token count - Anthropic's real usage gating weights tokens by model and type (an Opus token
-/// is far more "expensive" toward the limit than a Haiku one), which estimated cost already
-/// approximates far better than a flat token sum. Claude itself only ever shows a usage
-/// *percentage*, never the underlying limit, so this value is not typed in directly - it is derived
-/// once (<c>currentCost / (enteredPercent / 100)</c>) from the percentage the user read off
-/// Claude's usage display and the estimated cost this tool had computed for the window at that moment.
-/// Once derived it is persisted and reused so the usage-progress bar can keep tracking live as
-/// cost accrues, without asking the user again every refresh.
+/// <param name="SessionCalibration">
+/// The reading the account's session (5h) usage limit is derived from: the usage *percentage* the user read off
+/// Claude's usage display, together with the cost this tool had counted for the window at that moment (see
+/// <see cref="UsageCalibration"/>). Claude itself never shows the underlying limit, so it cannot be typed in
+/// directly. The limit is derived from the reading on demand as a quota-weighted USD cost budget (see
+/// <see cref="Commands.QuotaCost"/>) rather than stored, so the usage-progress bar keeps tracking live as cost accrues
+/// without asking the user again, and the <see cref="CacheReadWeight"/> can be tuned without reading the percentage again.
 /// </param>
-/// <param name="WeekCostLimit">The account's weekly usage limit, derived the same way as <see cref="SessionCostLimit"/>.</param>
+/// <param name="WeekCalibration">The reading the account's weekly usage limit is derived from, kept the same way as <see cref="SessionCalibration"/>.</param>
+/// <param name="CacheReadWeight">
+/// The share of the list price of cache-read tokens that counts toward the usage quota (see
+/// <see cref="Commands.QuotaCost"/>), as last chosen with <c>--cache-read-weight</c>. <see langword="null"/> means the
+/// default.
+/// </param>
 public sealed record LimitsSettings(
     DateTimeOffset? SessionResetAt,
     string? WeekResetAt,
-    decimal? SessionCostLimit = null,
-    decimal? WeekCostLimit = null)
+    UsageCalibration? SessionCalibration = null,
+    UsageCalibration? WeekCalibration = null,
+    decimal? CacheReadWeight = null)
 {
-    /// <summary>An empty settings instance with no configured reset times or usage limits.</summary>
-    public static readonly LimitsSettings Empty = new(null, null, null, null);
+    /// <summary>
+    /// An empty settings instance with no configured reset times or usage limits.
+    /// </summary>
+    public static readonly LimitsSettings Empty = new(null, null, null, null, null);
+
+    /// <summary>
+    /// Gets the session usage limit that an older version saved. It is only read, to tell the user it could not be
+    /// carried over (a limit alone cannot be re-derived under another cache read weight), and is never written back.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? SessionCostLimit { get; init; }
+
+    /// <summary>
+    /// Gets the weekly usage limit that an older version saved; see <see cref="SessionCostLimit"/>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? WeekCostLimit { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether the file still holds a usage limit saved by an older version.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasLegacyLimits => SessionCostLimit is not null || WeekCostLimit is not null;
 }
 
 /// <summary>
