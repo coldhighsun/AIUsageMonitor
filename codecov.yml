@@ -1,0 +1,3 @@
+ignore:
+  - "src/AIUsageMonitor.Cli/**"
+  - "src/AIUsageMonitor.WPF/**"
