@@ -12,7 +12,7 @@
 [![NuGet Tool Downloads](https://img.shields.io/nuget/dt/AIUsageMonitor.Cli?logo=nuget&label=nuget%20downloads)](https://www.nuget.org/packages/AIUsageMonitor.Cli)
 [![GitHub last commit](https://img.shields.io/github/last-commit/coldhighsun/AIUsageMonitor)](https://github.com/coldhighsun/AIUsageMonitor/commits/main)
 
-English | [中文](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
 
 ---
 
