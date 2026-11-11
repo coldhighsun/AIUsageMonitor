@@ -6,6 +6,12 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
     labels: ["dependencies"]
+    # Pinned to 10.x on purpose: skip major version bumps for these packages (minor/patch still allowed).
+    ignore:
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "System.Runtime.Caching"
+        update-types: ["version-update:semver-major"]
     groups:
       nuget-minor-patch:
         update-types: ["minor", "patch"]
