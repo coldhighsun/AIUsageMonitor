@@ -198,7 +198,7 @@ public sealed class SessionUsageBuilder(
     /// <param name="day">The local day.</param>
     /// <param name="marginDays">The days to move, negative for earlier.</param>
     /// <returns>The moment, clamped to January 1970 at the earliest and December 9999 at the latest.</returns>
-    private static DateTimeOffset CoarseBound(DateOnly day, int marginDays)
+    internal static DateTimeOffset CoarseBound(DateOnly day, int marginDays)
     {
         var number = Math.Clamp((long)day.DayNumber + marginDays, DateOnly.MinValue.DayNumber, DateOnly.MaxValue.DayNumber);
         var start = new DateTimeOffset(DateOnly.FromDayNumber((int)number).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
