@@ -71,6 +71,21 @@ public sealed class ClaudeDataLocator(string? claudeDir = null, TimeProvider? ti
     public string ProjectsDir => Path.Combine(_claudeDir, "projects");
 
     /// <summary>
+    /// Gets the full path to the <c>sessions</c> directory, which holds one small file per running Claude Code process.
+    /// </summary>
+    public string SessionsDir => Path.Combine(_claudeDir, "sessions");
+
+    /// <summary>
+    /// Gets the full path to the <c>plans</c> directory containing saved plan documents.
+    /// </summary>
+    public string PlansDir => Path.Combine(_claudeDir, "plans");
+
+    /// <summary>
+    /// Gets the full path to the <c>file-history</c> directory containing per-session file backups.
+    /// </summary>
+    public string FileHistoryDir => Path.Combine(_claudeDir, "file-history");
+
+    /// <summary>
     /// Gets the full path to the <c>stats-cache.json</c> file used to cache computed usage statistics.
     /// </summary>
     public string StatsCachePath => Path.Combine(_claudeDir, "stats-cache.json");

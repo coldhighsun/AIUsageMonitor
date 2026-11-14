@@ -10,5 +10,9 @@ namespace AIUsageMonitor.Core.Models;
 [JsonSerializable(typeof(SessionMessage))]
 [JsonSerializable(typeof(HistoryEntry))]
 [JsonSerializable(typeof(ExportPayload))]
+[JsonSerializable(typeof(InsightsReport))]
+[JsonSerializable(typeof(IReadOnlyList<ActiveSession>))]
+[JsonSerializable(typeof(IReadOnlyList<SubagentInfo>))]
+[JsonSerializable(typeof(ClaudeDataInventory))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
 public sealed partial class CoreJsonContext : JsonSerializerContext;

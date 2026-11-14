@@ -104,6 +104,16 @@ public sealed class DataService : IDisposable
     private readonly FileSystemWatcher? _statsCacheWatcher;
 
     /// <summary>
+    /// Builds the insights beyond plain token counts (cost attribution, tool use, cache and thinking figures, and so on).
+    /// </summary>
+    private readonly ClaudeInsightsBuilder? _insightsBuilder;
+
+    /// <summary>
+    /// Reads the small files next to the transcripts (running processes, sub-agent metadata, folder inventory).
+    /// </summary>
+    private readonly ClaudeSideFilesReader? _sideFilesReader;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="DataService"/> class with the specified usage provider and usage analyzer. The constructor sets up file system watchers to monitor changes to relevant files, such as the stats cache and session transcripts, and clears the cached stats cache when changes are detected.
     /// </summary>
     /// <param name="provider">The usage provider used to retrieve AI usage data.</param>
@@ -111,18 +121,24 @@ public sealed class DataService : IDisposable
     /// <param name="sessionFileCache">The session file cache used to cache parsed session transcript rows.</param>
     /// <param name="sessionActivityTracker">Tracks the latest session file write time from file-system watcher events.</param>
     /// <param name="logger">The logger instance used for logging warnings and errors.</param>
+    /// <param name="insightsBuilder">Builds the insights beyond plain token counts; when omitted, <see cref="GetInsights"/> is unavailable.</param>
+    /// <param name="sideFilesReader">Reads the small files next to the transcripts; when omitted, the queries that need it are unavailable.</param>
     public DataService(
         IUsageProvider provider,
         UsageAnalyzer analyzer,
         SessionFileCache sessionFileCache,
         SessionActivityTracker sessionActivityTracker,
-        ILogger<DataService> logger)
+        ILogger<DataService> logger,
+        ClaudeInsightsBuilder? insightsBuilder = null,
+        ClaudeSideFilesReader? sideFilesReader = null)
     {
         _provider = provider;
         _analyzer = analyzer;
         _sessionFileCache = sessionFileCache;
         _sessionActivityTracker = sessionActivityTracker;
         _logger = logger;
+        _insightsBuilder = insightsBuilder;
+        _sideFilesReader = sideFilesReader;
 
         if (provider is ClaudeUsageProvider claudeProvider)
         {
@@ -256,6 +272,51 @@ public sealed class DataService : IDisposable
         return _provider.GetSessionUsage(from, to, model, progress)
             .Where(s => ProjectFilter.Matches(s, project))
             .ToList();
+    }
+
+    /// <summary>
+    /// Gets everything the transcripts say beyond plain token counts for a range of local days, read fresh from the
+    /// session transcripts: cost by sub-agent, skill, agent, MCP server, plugin, branch and more; tool use; cache and
+    /// thinking figures; compactions; rate-limit rejections; Claude Code's own cost figures; session titles and pull requests.
+    /// </summary>
+    /// <param name="from">The first local day to include.</param>
+    /// <param name="to">The last local day to include.</param>
+    /// <param name="progress">An optional progress reporter to report the progress of the operation.</param>
+    /// <returns>The insights of the range.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the service was created without an insights builder.</exception>
+    public InsightsReport GetInsights(DateOnly from, DateOnly to, IProgress<int>? progress = null)
+    {
+        return (_insightsBuilder ?? throw new InvalidOperationException("No insights builder is available.")).Build(from, to, progress);
+    }
+
+    /// <summary>
+    /// Gets the Claude Code processes that have a file under the <c>sessions</c> directory, with whether each is still running.
+    /// </summary>
+    /// <returns>The processes, most recently updated first.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the service was created without a side-file reader.</exception>
+    public IReadOnlyList<ActiveSession> GetActiveSessions()
+    {
+        return (_sideFilesReader ?? throw new InvalidOperationException("No side-file reader is available.")).GetActiveSessions();
+    }
+
+    /// <summary>
+    /// Gets what the files next to the sub-agent transcripts say about each sub-agent.
+    /// </summary>
+    /// <returns>The sub-agents, ordered by session and agent id.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the service was created without a side-file reader.</exception>
+    public IReadOnlyList<SubagentInfo> GetSubagents()
+    {
+        return (_sideFilesReader ?? throw new InvalidOperationException("No side-file reader is available.")).GetSubagents();
+    }
+
+    /// <summary>
+    /// Gets a metadata-only inventory of what the Claude Code folder holds, so a front end can tell what it can show.
+    /// </summary>
+    /// <returns>The inventory.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the service was created without a side-file reader.</exception>
+    public ClaudeDataInventory GetDataInventory()
+    {
+        return (_sideFilesReader ?? throw new InvalidOperationException("No side-file reader is available.")).GetInventory();
     }
 
     /// <summary>
