@@ -33,6 +33,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SessionUsageBuilder>();
         services.AddSingleton<ClaudeInsightsBuilder>();
         services.AddSingleton<ClaudeSideFilesReader>();
+        services.AddSingleton(sp => new ClaudeOAuthUsageClient(
+            sp.GetRequiredService<ClaudeDataLocator>(), new HttpClient(), sp.GetRequiredService<ILogger<ClaudeOAuthUsageClient>>()));
+        services.AddSingleton(_ => new OnlineLimitsCache(OnlineLimitsCache.DefaultPath));
+        services.AddSingleton(sp => new ClaudeDesktopUsageReader(null, sp.GetRequiredService<ILogger<ClaudeDesktopUsageReader>>()));
+        services.AddSingleton(_ => new StatuslineLimitsStore(StatuslineLimitsStore.DefaultPath));
+        services.AddSingleton(sp => new ClaudeOnlineLimitsService(
+            sp.GetRequiredService<ClaudeOAuthUsageClient>(), sp.GetRequiredService<OnlineLimitsCache>(),
+            desktop: sp.GetRequiredService<ClaudeDesktopUsageReader>(),
+            statusline: sp.GetRequiredService<StatuslineLimitsStore>()));
         services.AddSingleton<HistoryParser>();
         services.AddSingleton<ClaudeUsageProvider>();
         services.AddSingleton<IUsageProvider>(sp => sp.GetRequiredService<ClaudeUsageProvider>());

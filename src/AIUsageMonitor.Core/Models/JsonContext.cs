@@ -14,5 +14,7 @@ namespace AIUsageMonitor.Core.Models;
 [JsonSerializable(typeof(IReadOnlyList<ActiveSession>))]
 [JsonSerializable(typeof(IReadOnlyList<SubagentInfo>))]
 [JsonSerializable(typeof(ClaudeDataInventory))]
+[JsonSerializable(typeof(OnlineLimitsCacheEntry))]
+[JsonSerializable(typeof(OnlineLimitsPause))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
 public sealed partial class CoreJsonContext : JsonSerializerContext;

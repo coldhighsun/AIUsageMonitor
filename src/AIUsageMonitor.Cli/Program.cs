@@ -2,6 +2,7 @@
 using AIUsageMonitor.Cli;
 using AIUsageMonitor.Cli.Commands;
 using AIUsageMonitor.Cli.Rendering;
+using AIUsageMonitor.Core.Providers.Claude;
 using AIUsageMonitor.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -45,8 +46,12 @@ try
     var watchCommand = WatchCommand.Create(dataService, updateCheckLogger);
     rootCommand.Subcommands.Add(watchCommand);
 
+    var statuslineCommand = StatuslineCommand.Create(host.Services.GetRequiredService<StatuslineLimitsStore>());
+    rootCommand.Subcommands.Add(statuslineCommand);
+
     var parseResult = rootCommand.Parse(args);
     var isWatch = parseResult.CommandResult.Command == watchCommand;
+    var isStatusline = parseResult.CommandResult.Command == statuslineCommand;
 
     if (isWatch && parseResult.Errors.Count == 0 && !Console.IsOutputRedirected)
     {
@@ -58,7 +63,8 @@ try
     // runs alongside the command, and prints the notice after the command's own output.
     using var updateCheckCts = new CancellationTokenSource();
     // --json is for scripts, which shouldn't pay a network request or the wait for it on every call.
-    var updateCheck = UpdateNotice.ShouldCheckAfterCommand(isWatch, JsonOutput.IsRequested(parseResult)) ? UpdateNotice.StartCheck(updateCheckCts.Token, updateCheckLogger) : null;
+    // The status line command runs after every response and its output is the status line, so it never checks for updates.
+    var updateCheck = UpdateNotice.ShouldCheckAfterCommand(isWatch || isStatusline, JsonOutput.IsRequested(parseResult)) ? UpdateNotice.StartCheck(updateCheckCts.Token, updateCheckLogger) : null;
 
     var exitCode = await parseResult.InvokeAsync();
 

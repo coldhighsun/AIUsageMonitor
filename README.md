@@ -16,7 +16,7 @@ English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
 
 ---
 
-A read-only analytics layer over Claude Code's own local usage data. It never calls the Anthropic API — it reads the files Claude Code already writes under `~/.claude` (`stats-cache.json`, `history.jsonl`, `projects/*.jsonl` session transcripts) and turns them into daily/period/model/hourly/session usage reports and cost estimates.
+A read-only analytics layer over Claude Code's own usage data. It reads the files Claude Code already writes under `~/.claude` (`stats-cache.json`, `history.jsonl`, `projects/*.jsonl` session transcripts) and turns them into daily/period/model/hourly/session usage reports and cost estimates. Only `watch --view limits` also goes online (see [Exact limits](#exact-limits-from-anthropics-account-api)); every other command is local-only.
 
 ## Projects
 
@@ -91,7 +91,17 @@ The real reset times and token limits live on your Anthropic account, not locall
 - `--session-token-progress <percent>` / `--week-token-progress <percent>` — the usage % Claude shows (e.g. `32`), used to back out a usage budget. Each percentage is saved together with the cost counted at that moment, and the budget is derived from it; a percentage given while nothing is counted for the window yet is ignored (the saved one is kept)
 - `--cache-read-weight <0-1>` — what share of the list price of cache-read tokens counts toward the usage bar (default `0.1`, a heuristic: the subscription quota is not metered at API prices, and cache reads dominate long sessions). Lower it if the bar runs ahead of Claude's own percentage, raise it if it runs behind; the saved percentages are kept and the budgets re-derived, so there is no need to read `/usage` again. It is saved when given; `--reset-cache-read-weight` forgets it. A line below the table shows what the bar is made of (cache read / output / cache write / input)
 
-Without these, values are estimated from local transcript timestamps, and a row shows as **unknown** rather than a guessed countdown when there isn't enough local evidence (no activity in the last 5 hours, or no weekly anchor at all).
+### Exact limits from Anthropic's account API
+
+By default `watch --view limits` asks Anthropic's account API (`GET https://api.anthropic.com/api/oauth/usage`, an undocumented endpoint) for the **exact** usage percentages and reset times, so nothing has to be typed in: the bars show the real percentage, the windows are pinned to the real reset times, and the estimate is re-based on the latest exact reading. It uses Claude Code's own sign-in from `~/.claude/.credentials.json`; the token is read for each request, kept in memory only, and never written to disk or logs. A request goes out at most once every 5 minutes, and after an HTTP 429 it pauses (the server's `Retry-After`, else 2 → 30 minutes), keeping the end of the pause on disk so a restart honours it. If the sign-in is missing or rejected, the network fails, or the answer is not understood, the view falls back to the local estimate below and says why; it never shows an invented number. The last reading is kept in `%LOCALAPPDATA%/aimon/cache/online-limits.json` (no token; the account only as a one-way hash).
+
+While the API cannot be used (a 429 pause, no sign-in, network trouble) the view also shows the latest percentages the Claude desktop app recorded on this machine (`plan-usage-history.json`), with their time, beside the estimate. They are only as fresh as the app's last sample, so they do not drive the bar.
+
+**Claude Code's own figures (optional).** Claude Code hands its status line command the exact 5-hour and weekly percentages with their reset times (`rate_limits`, Pro/Max subscriptions). Set `aimon statusline` as that command (in `~/.claude/settings.json`: `"statusLine": { "type": "command", "command": "aimon statusline --print" }`) and it keeps them in `%LOCALAPPDATA%imon\cache\statusline-limits.json` (only percentages and times; `--print` also prints `5h 23% · 7d 41%` as the status line text). While a Claude Code session is running they are at most a few minutes old, so `watch` uses them as the exact reading without asking the API; once older they are shown beside the estimate like the desktop sample.
+
+`--offline` turns the online part off: Claude Code's sign-in is not read and nothing is sent. That local desktop-app sample is still shown.
+
+Without a live reading (or with `--offline`), values are estimated from local transcript timestamps, and a row shows as **unknown** rather than a guessed countdown when there isn't enough local evidence (no activity in the last 5 hours, or no weekly anchor at all).
 
 Press `r` while `watch` is running to re-enter any of the four (Enter keeps the current value). In an interactive terminal, unset values are prompted for once up front and saved to `%LOCALAPPDATA%/aimon/limits-settings.json` (or the OS equivalent) for future runs.
 

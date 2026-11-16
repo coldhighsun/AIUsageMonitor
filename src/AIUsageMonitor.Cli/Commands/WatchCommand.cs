@@ -34,6 +34,10 @@ public static class WatchCommand
         };
         var (sessionResetOption, weekResetOption) = LimitsAnchors.CreateOptions();
         var (sessionTokenProgressOption, weekTokenProgressOption) = LimitsAnchors.CreateTokenProgressOptions();
+        var offlineOption = new Option<bool>("--offline")
+        {
+            Description = "Do not read Claude Code's sign-in or contact Anthropic: the limits view then estimates its usage percentages from local data only. By default it asks Anthropic's account API (with Claude Code's own OAuth token, kept in memory only) for the exact percentages and reset times, and falls back to the estimate when that fails. Only used when --view limits."
+        };
         var cacheReadWeightOption = QuotaCost.CreateOption();
         var resetCacheReadWeightOption = QuotaCost.CreateResetOption();
         command.Options.Add(viewOption);
@@ -42,6 +46,7 @@ public static class WatchCommand
         command.Options.Add(weekResetOption);
         command.Options.Add(sessionTokenProgressOption);
         command.Options.Add(weekTokenProgressOption);
+        command.Options.Add(offlineOption);
         command.Options.Add(cacheReadWeightOption);
         command.Options.Add(resetCacheReadWeightOption);
         QuotaCost.AddConflictValidator(command, cacheReadWeightOption, resetCacheReadWeightOption);
@@ -54,6 +59,7 @@ public static class WatchCommand
             var weekResetArg = parseResult.GetValue(weekResetOption);
             var sessionTokenProgressArg = parseResult.GetValue(sessionTokenProgressOption);
             var weekTokenProgressArg = parseResult.GetValue(weekTokenProgressOption);
+            var offline = parseResult.GetValue(offlineOption);
 
             DateTimeOffset? effectiveSessionResetAt = null;
             (DayOfWeek Day, TimeSpan TimeOfDay)? effectiveWeekResetAt = null;
@@ -66,9 +72,15 @@ public static class WatchCommand
             UsageWindowSummary? lastSessionWindow = null;
             UsageWindowSummary? lastWeekWindow = null;
 
+            // What Anthropic's account API last said; null when online reading is off (--offline) or the view is not limits.
+            OnlineLimitsResult? latestOnline = null;
+            var lastCalibrationSave = DateTimeOffset.MinValue;
+
             if (view == "limits")
             {
                 var saved = LimitsSettingsStore.Load();
+
+                latestOnline = offline ? dataService.GetOfflineLimits() : await dataService.GetOnlineLimitsAsync(ct);
 
                 // Usage data is loaded once, up front, before any prompt - both so the "loading" step
                 // doesn't land in between the reset-time and token-percentage prompts below, and so
@@ -79,12 +91,21 @@ public static class WatchCommand
                 (lastSessionWindow, lastWeekWindow) = ProgressReporter.Run("Loading usage data...", p =>
                     (dataService.GetCurrentSessionWindow(null, p), dataService.GetWeekWindow(null, p)));
 
-                if (!LimitsAnchors.TryResolve(
-                        sessionResetArg, weekResetArg, out effectiveSessionResetAt, out effectiveWeekResetAt, out var error))
+                // With the real reset times from the account API there is nothing to ask for: the prompts only run when
+                // the API gave no weekly reset (or an explicit argument has to be validated).
+                var onlineWeekAnchor = OnlineLimitsApplier.WeekAnchor(latestOnline, DateTimeOffset.Now);
+                if (onlineWeekAnchor is null || sessionResetArg is not null || weekResetArg is not null)
                 {
-                    AnsiConsole.MarkupLine(ConsoleMarkup.Red(error!));
-                    return 1;
+                    if (!LimitsAnchors.TryResolve(
+                            sessionResetArg, weekResetArg, out effectiveSessionResetAt, out effectiveWeekResetAt, out var error))
+                    {
+                        AnsiConsole.MarkupLine(ConsoleMarkup.Red(error!));
+                        return 1;
+                    }
                 }
+
+                effectiveSessionResetAt = OnlineLimitsApplier.SessionAnchor(latestOnline, DateTimeOffset.Now) ?? effectiveSessionResetAt;
+                effectiveWeekResetAt = onlineWeekAnchor ?? effectiveWeekResetAt;
 
                 // Reload, since TryResolve may have just persisted the reset times entered above -
                 // reusing the pre-prompt snapshot here would overwrite them with their stale values.
@@ -100,10 +121,14 @@ public static class WatchCommand
 
                 // The weight is tuned by trial, so what is saved is the reading each limit is derived from (see
                 // UsageCalibration), not the limit: changing the weight then re-derives the limits without asking again.
+                // A live exact percentage stands in for the one the user would read off /usage, so nothing is prompted for.
+                var liveSession = OnlineLimitsApplier.LivePercent(latestOnline, limits => limits.Session);
+                var liveWeek = OnlineLimitsApplier.LivePercent(latestOnline, limits => limits.Week);
                 var startup = LimitsStartup.Resolve(
-                    saved, sessionTokenProgressArg, weekTokenProgressArg,
+                    saved, sessionTokenProgressArg ?? liveSession, weekTokenProgressArg ?? liveWeek,
                     parseResult.GetValue(cacheReadWeightOption), parseResult.GetValue(resetCacheReadWeightOption),
-                    lastSessionWindow.CostBreakdown, lastWeekWindow.CostBreakdown, Console.IsInputRedirected);
+                    lastSessionWindow.CostBreakdown, lastWeekWindow.CostBreakdown,
+                    Console.IsInputRedirected || latestOnline is { IsLive: true });
                 if (startup.Error is not null)
                 {
                     AnsiConsole.MarkupLine(ConsoleMarkup.Red(startup.Error));
@@ -149,16 +174,44 @@ public static class WatchCommand
 
             IRenderable BuildLimits(IProgress<int>? progress)
             {
+                // The real reset times pin the windows; without them the configured or estimated ones stand.
+                var now = DateTimeOffset.Now;
+                effectiveSessionResetAt = OnlineLimitsApplier.SessionAnchor(latestOnline, now) ?? effectiveSessionResetAt;
+                effectiveWeekResetAt = OnlineLimitsApplier.WeekAnchor(latestOnline, now) ?? effectiveWeekResetAt;
                 lastSessionWindow = dataService.GetCurrentSessionWindow(effectiveSessionResetAt, progress);
                 lastWeekWindow = dataService.GetWeekWindow(effectiveWeekResetAt, progress);
+
+                // Re-base the estimate on the latest exact reading, so it is close when a live one cannot be had.
+                var recalibratedSession = OnlineLimitsApplier.Recalibrate(
+                    effectiveSessionCalibration, OnlineLimitsApplier.LivePercent(latestOnline, limits => limits.Session),
+                    lastSessionWindow.CostBreakdown, cacheReadWeight);
+                var recalibratedWeek = OnlineLimitsApplier.Recalibrate(
+                    effectiveWeekCalibration, OnlineLimitsApplier.LivePercent(latestOnline, limits => limits.Week),
+                    lastWeekWindow.CostBreakdown, cacheReadWeight);
+                if ((recalibratedSession != effectiveSessionCalibration || recalibratedWeek != effectiveWeekCalibration)
+                    && now - lastCalibrationSave >= CalibrationSaveInterval)
+                {
+                    // Silent: anything printed here would be cleared with the screen. A failed write only costs the memory of it.
+                    LimitsSettingsStore.Save(LimitsSettingsStore.Load() with
+                    {
+                        SessionCalibration = recalibratedSession,
+                        WeekCalibration = recalibratedWeek,
+                    });
+                    lastCalibrationSave = now;
+                }
+
+                effectiveSessionCalibration = recalibratedSession;
+                effectiveWeekCalibration = recalibratedWeek;
+
                 return SpectreRenderer.BuildUsageLimits(
                     lastSessionWindow,
                     lastWeekWindow,
                     effectiveSessionCalibration,
                     effectiveWeekCalibration,
-                    recalibrationEnabled,
+                    recalibrationEnabled && latestOnline is not { IsLive: true },
                     effectiveSessionResetAt is not null,
-                    cacheReadWeight);
+                    cacheReadWeight,
+                    latestOnline);
             }
 
             ClearScreen();
@@ -167,7 +220,7 @@ public static class WatchCommand
                 => SpectreRenderer.WithNotices(content, limitsNotices, updateNotice, versionFooter);
 
             var current = view == "limits"
-                ? WithUpdateNotice(SpectreRenderer.BuildUsageLimits(lastSessionWindow!, lastWeekWindow!, effectiveSessionCalibration, effectiveWeekCalibration, recalibrationEnabled, effectiveSessionResetAt is not null, cacheReadWeight))
+                ? WithUpdateNotice(SpectreRenderer.BuildUsageLimits(lastSessionWindow!, lastWeekWindow!, effectiveSessionCalibration, effectiveWeekCalibration, recalibrationEnabled && latestOnline is not { IsLive: true }, effectiveSessionResetAt is not null, cacheReadWeight, latestOnline))
                 : ProgressReporter.Run("Loading usage data...", BuildCurrent);
 
             while (!ct.IsCancellationRequested)
@@ -181,6 +234,13 @@ public static class WatchCommand
                     {
                         while (!ct.IsCancellationRequested)
                         {
+                            if (view == "limits")
+                            {
+                                // Throttled inside the service (one request every 5 minutes, a pause after a 429), so every tick may
+                                // ask; with --offline only the desktop app's local samples are read.
+                                latestOnline = offline ? dataService.GetOfflineLimits() : await dataService.GetOnlineLimitsAsync(ct);
+                            }
+
                             ctx.UpdateTarget(BuildCurrent());
                             ctx.Refresh();
 
@@ -221,6 +281,11 @@ public static class WatchCommand
 
         return command;
     }
+
+    /// <summary>
+    /// The shortest time between two writes of the calibration to the settings file while online readings keep refining it.
+    /// </summary>
+    private static readonly TimeSpan CalibrationSaveInterval = TimeSpan.FromMinutes(10);
 
     private static void ClearScreen()
     {

@@ -114,6 +114,11 @@ public sealed class DataService : IDisposable
     private readonly ClaudeSideFilesReader? _sideFilesReader;
 
     /// <summary>
+    /// Reads the exact quotas from Anthropic's account API (the one place this tool uses the network).
+    /// </summary>
+    private readonly ClaudeOnlineLimitsService? _onlineLimits;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="DataService"/> class with the specified usage provider and usage analyzer. The constructor sets up file system watchers to monitor changes to relevant files, such as the stats cache and session transcripts, and clears the cached stats cache when changes are detected.
     /// </summary>
     /// <param name="provider">The usage provider used to retrieve AI usage data.</param>
@@ -123,6 +128,7 @@ public sealed class DataService : IDisposable
     /// <param name="logger">The logger instance used for logging warnings and errors.</param>
     /// <param name="insightsBuilder">Builds the insights beyond plain token counts; when omitted, <see cref="GetInsights"/> is unavailable.</param>
     /// <param name="sideFilesReader">Reads the small files next to the transcripts; when omitted, the queries that need it are unavailable.</param>
+    /// <param name="onlineLimits">Reads the exact quotas from the account API; when omitted, <see cref="GetOnlineLimitsAsync"/> reports it as disabled.</param>
     public DataService(
         IUsageProvider provider,
         UsageAnalyzer analyzer,
@@ -130,8 +136,10 @@ public sealed class DataService : IDisposable
         SessionActivityTracker sessionActivityTracker,
         ILogger<DataService> logger,
         ClaudeInsightsBuilder? insightsBuilder = null,
-        ClaudeSideFilesReader? sideFilesReader = null)
+        ClaudeSideFilesReader? sideFilesReader = null,
+        ClaudeOnlineLimitsService? onlineLimits = null)
     {
+        _onlineLimits = onlineLimits;
         _provider = provider;
         _analyzer = analyzer;
         _sessionFileCache = sessionFileCache;
@@ -287,6 +295,28 @@ public sealed class DataService : IDisposable
     public InsightsReport GetInsights(DateOnly from, DateOnly to, IProgress<int>? progress = null)
     {
         return (_insightsBuilder ?? throw new InvalidOperationException("No insights builder is available.")).Build(from, to, progress);
+    }
+
+    /// <summary>
+    /// Gets the exact quota percentages and reset times of the signed-in account from Anthropic's account API, falling
+    /// back to the last reading kept on disk. It is the only call that uses the network and reads Claude Code's sign-in;
+    /// callers that want to stay offline simply do not call it.
+    /// </summary>
+    /// <param name="ct">Cancels the request.</param>
+    /// <returns>The reading and where it came from, or the reason there is none (never an invented figure).</returns>
+    public Task<OnlineLimitsResult> GetOnlineLimitsAsync(CancellationToken ct = default)
+    {
+        return _onlineLimits is null ? Task.FromResult(OnlineLimitsResult.Disabled) : _onlineLimits.GetAsync(ct);
+    }
+
+    /// <summary>
+    /// Gets what the Claude desktop app last recorded about the account's quotas on this machine, for use when online reading
+    /// is switched off. It neither reads Claude Code's sign-in nor uses the network.
+    /// </summary>
+    /// <returns>A result that is never live: the latest sample (as old as its time says), or no reading.</returns>
+    public OnlineLimitsResult GetOfflineLimits()
+    {
+        return _onlineLimits?.GetLocalOnly() ?? OnlineLimitsResult.Disabled;
     }
 
     /// <summary>

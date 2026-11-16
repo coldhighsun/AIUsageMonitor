@@ -16,7 +16,7 @@
 
 ---
 
-一個基於 Claude Code 本機使用資料的**唯讀**分析工具。它從不呼叫 Anthropic API，只讀取 Claude Code 自身已經寫入 `~/.claude` 目錄下的檔案(`stats-cache.json`、`history.jsonl`、`projects/*.jsonl` 工作階段記錄),並將其轉換為依日/依週期/依模型/依小時/依工作階段的用量報表與成本估算。
+一個基於 Claude Code 使用資料的**唯讀**分析工具。它讀取 Claude Code 自身已經寫入 `~/.claude` 目錄下的檔案(`stats-cache.json`、`history.jsonl`、`projects/*.jsonl` 工作階段記錄),並將其轉換為依日/依週期/依模型/依小時/依工作階段的用量報表與成本估算。
 
 ## 專案結構
 
@@ -91,7 +91,17 @@ aimon <命令>
 - `--session-token-progress <百分比>` / `--week-token-progress <百分比>` — Claude 顯示的用量百分比(如 `32`)，用來反推出用量預算。百分比會連同當時統計到的成本一起儲存，預算由它推算;視窗內還沒有統計到用量時給出的百分比會被忽略(保留已儲存的)
 - `--cache-read-weight <0-1>` — cache read token 依定價的多大比例計入用量進度列(預設 `0.1`，為經驗值:訂閱額度不依 API 定價計量，而 cache read 在長工作階段中占絕大多數)。進度列比 Claude 顯示的快就調小，慢就調大;已儲存的百分比會保留並依新權重重新推算預算，無需再查看 `/usage`。傳入後會被儲存，`--reset-cache-read-weight` 可清除它。表格下方有一行說明進度列由哪幾類 token 組成(cache read / output / cache write / input)
 
-不設定這些參數時，會根據本機工作階段記錄估算;當本機證據不足時(近 5 小時無活動，或根本沒有週期錨點)，對應列會顯示為**未知**，而不是編造一個倒數計時。
+### 來自 Anthropic 帳號介面的精確額度
+
+預設情況下，`watch --view limits` 會請求 Anthropic 帳號介面(`GET https://api.anthropic.com/api/oauth/usage`，未公開介面)，取得**精確**的用量百分比與重置時間，無需手動輸入：進度條顯示真實百分比，兩個視窗依真實重置時間對齊，本機估算也會以最新的精確讀數為基準重新校準。使用的是 Claude Code 自己在 `~/.claude/.credentials.json` 中的登入憑證；token 每次請求時讀取，只保留在記憶體中，絕不寫入磁碟或記錄檔。最多每 5 分鐘請求一次，429 暫停的截止時間會儲存下來，重新啟動後仍然遵守，遇到 HTTP 429 會暫停(遵循伺服器的 `Retry-After`，否則 2 → 30 分鐘遞增)。憑證缺失或被拒絕、網路失敗或回應無法辨識時，檢視會退回下方的本機估算並說明原因，絕不顯示捏造的數字。最近一次讀數儲存在 `%LOCALAPPDATA%/aimon/cache/online-limits.json`(不含 token，帳號僅儲存單向雜湊)。
+
+當介面暫時無法使用(處於 429 暫停、沒有登入憑證、網路異常)時，檢視還會在估算旁邊顯示 Claude 桌面版在本機記錄的最近一次百分比(`plan-usage-history.json`)及其時間。它只和桌面版最後一次取樣一樣新，因此不會驅動進度條。
+
+**Claude Code 自己的資料(選用)。** Claude Code 會把精確的 5 小時/每週百分比及重置時間(`rate_limits`，Pro/Max 訂閱)交給 statusline 命令。把 `aimon statusline` 設為該命令(`~/.claude/settings.json` 中 `"statusLine": { "type": "command", "command": "aimon statusline --print" }`)，它會把資料存到 `%LOCALAPPDATA%imon\cache\statusline-limits.json`(只有百分比和時間；`--print` 同時輸出 `5h 23% · 7d 41%` 作為狀態列文字)。Claude Code 工作階段執行期間這些資料最多只有幾分鐘舊，`watch` 會直接當作精確讀數而不請求介面；更舊時則像桌面版取樣一樣顯示在估算旁邊。
+
+`--offline` 會關閉連網部分：不讀取 Claude Code 的登入憑證，也不傳送任何請求；桌面版的本機取樣仍會顯示。
+
+沒有線上讀數(或使用 `--offline`)時，會根據本機工作階段記錄估算;當本機證據不足時(近 5 小時無活動，或根本沒有週期錨點)，對應列會顯示為**未知**，而不是編造一個倒數計時。
 
 在 `watch` 執行中按 `r` 可隨時重新輸入以上四項(直接按 Enter 保留目前值)。在互動式終端機中，未設定的項目會一次性提示輸入，並儲存到 `%LOCALAPPDATA%/aimon/limits-settings.json`(或對應系統的等效路徑)供後續執行重複使用。
 

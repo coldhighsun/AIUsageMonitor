@@ -414,12 +414,19 @@ public static class SpectreRenderer
     /// The share of the list price of cache-read tokens that counts toward the usage quota (see
     /// <see cref="Commands.QuotaCost"/>). The usage-progress bar and the limits it is measured against use this weighted cost.
     /// </param>
+    /// <param name="online">
+    /// What the account API said (see <see cref="Core.Services.DataService.GetOnlineLimitsAsync"/>), or <see langword="null"/>
+    /// when online reading is switched off. A live reading replaces the estimated usage percentage of the window it covers
+    /// with the exact one; without one the estimate stays and a note says why.
+    /// </param>
     /// <returns>An <see cref="IRenderable"/> representing both usage windows.</returns>
     public static IRenderable BuildUsageLimits(
         UsageWindowSummary sessionWindow, UsageWindowSummary weekWindow,
         UsageCalibration? sessionCalibration = null, UsageCalibration? weekCalibration = null, bool recalibrationAvailable = true,
-        bool sessionResetConfigured = false, decimal cacheReadWeight = Commands.QuotaCost.DefaultCacheReadWeight)
+        bool sessionResetConfigured = false, decimal cacheReadWeight = Commands.QuotaCost.DefaultCacheReadWeight,
+        OnlineLimitsResult? online = null)
     {
+        var liveLimits = online is { IsLive: true } ? online.Limits : null;
         var table = new Table().Border(TableBorder.Rounded).Title("[bold yellow]Usage Limits[/]").ShowRowSeparators();
         table.AddColumn(HeaderColumn("Window", Justify.Left));
         table.AddColumn(HeaderColumn("Tokens", Justify.Right).NoWrap());
@@ -430,10 +437,15 @@ public static class SpectreRenderer
         table.AddColumn(HeaderColumn("Time Progress", Justify.Center));
         table.AddColumn(HeaderColumn("Usage Progress", Justify.Center));
 
-        var sessionFractions = AddRow(table, "Session (5h)", sessionWindow, sessionCalibration, cacheReadWeight);
-        AddRow(table, "Week", weekWindow, weekCalibration, cacheReadWeight);
+        var sessionFractions = AddRow(table, "Session (5h)", sessionWindow, sessionCalibration, cacheReadWeight, liveLimits?.Session);
+        AddRow(table, "Week", weekWindow, weekCalibration, cacheReadWeight, liveLimits?.Week);
 
         var notes = new List<IRenderable> { table };
+
+        if (FormatOnlineNote(online, DateTimeOffset.Now) is { } onlineNote)
+        {
+            notes.Add(new Markup(onlineNote));
+        }
 
         foreach (var (label, window) in new[] { ("Session", sessionWindow), ("Week", weekWindow) })
         {
@@ -480,15 +492,19 @@ public static class SpectreRenderer
         return notes.Count == 1 ? table : new Rows(notes);
 
         static (double Time, double Token)? AddRow(
-            Table table, string label, UsageWindowSummary window, UsageCalibration? calibration, decimal cacheReadWeight)
+            Table table, string label, UsageWindowSummary window, UsageCalibration? calibration, decimal cacheReadWeight,
+            OnlineQuota? exact)
         {
             var (tokens, messages, cost) = window.WindowStart is null
                 ? ("—", "—", "—")
                 : (FormatTokens(window.TotalTokens), FormatCount(window.Messages), FormatCost(window.EstimatedCost));
 
-            var tokenFraction = window.WindowStart is not null && calibration?.DeriveLimit(cacheReadWeight) is { } limit
-                ? (double)(Commands.QuotaCost.Compute(window.CostBreakdown, cacheReadWeight) / limit)
-                : (double?)null;
+            // The exact percentage Anthropic reports wins over the estimate derived from the calibration.
+            var tokenFraction = exact is not null
+                ? exact.Percent / 100
+                : window.WindowStart is not null && calibration?.DeriveLimit(cacheReadWeight) is { } limit
+                    ? (double)(Commands.QuotaCost.Compute(window.CostBreakdown, cacheReadWeight) / limit)
+                    : (double?)null;
             var tokenProgress = tokenFraction is { } tf ? FormatProgressBar(tf) : "—";
 
             if (window.ResetsAt is not { } resetsAt)
@@ -519,6 +535,73 @@ public static class SpectreRenderer
                 ? null
                 : (timeFraction.Value, tokenFraction.Value);
         }
+    }
+
+    /// <summary>
+    /// Formats the line that says where the usage-progress bars come from: Anthropic's account API (exact), or the local
+    /// estimate together with why the API reading is not in use.
+    /// </summary>
+    /// <param name="online">What the account API said, or <see langword="null"/> when online reading is not part of this view.</param>
+    /// <param name="now">The current time, for a pause that is still running.</param>
+    /// <returns>The markup of the line, or <see langword="null"/> when there is nothing to say.</returns>
+    internal static string? FormatOnlineNote(OnlineLimitsResult? online, DateTimeOffset now)
+    {
+        if (online is null)
+        {
+            return null;
+        }
+
+        if (online.IsLive)
+        {
+            var origin = online.FromStatusline ? "Claude Code's status line" : "Anthropic's account API";
+            return ConsoleMarkup.Colored("grey", $"Usage Progress is exact, read from {origin} at {online.ReadAt?.ToLocalTime():HH:mm:ss}.");
+        }
+
+        var reason = online.Failure switch
+        {
+            OnlineLimitsFailure.Disabled => "online reading is off (--offline)",
+            OnlineLimitsFailure.NotSignedIn => "Claude Code's sign-in was not found",
+            OnlineLimitsFailure.Rejected => "Anthropic rejected the sign-in; sign in to Claude Code again",
+            OnlineLimitsFailure.RateLimited => online.RetryAt is { } retryAt && retryAt > now
+                ? $"Anthropic asked for a pause until {retryAt.ToLocalTime():HH:mm} (about {Math.Max(1, (int)Math.Ceiling((retryAt - now).TotalMinutes))} min from now)"
+                : "Anthropic asked for a pause",
+            _ => "the account API could not be reached",
+        };
+
+        var note = ConsoleMarkup.Colored("grey", $"Usage Progress is an estimate from local data: {reason}.");
+        return online switch
+        {
+            { FromStatusline: true, Limits: { } sampled, ReadAt: { } sampledAt } => note + "\n" + FormatDesktopSample(sampled, sampledAt, now, "Claude Code's status line"),
+            { FromDesktopApp: true, Limits: { } sampled, ReadAt: { } sampledAt } => note + "\n" + FormatDesktopSample(sampled, sampledAt, now),
+            _ => note,
+        };
+    }
+
+    /// <summary>
+    /// Formats the line that gives the latest percentages the Claude desktop app recorded, with their time and age: they are
+    /// exact as of that moment, but only an estimate of now, so they are shown beside the bar and do not drive it.
+    /// </summary>
+    /// <param name="limits">The sampled quotas.</param>
+    /// <param name="sampledAt">When the sample was recorded.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="source">Where the sample comes from, as it reads in the line.</param>
+    /// <returns>The markup of the line.</returns>
+    internal static string FormatDesktopSample(OnlineLimits limits, DateTimeOffset sampledAt, DateTimeOffset now, string source = "the Claude desktop app")
+    {
+        var parts = new List<string>();
+        if (limits.Session is { } session)
+        {
+            parts.Add(string.Create(CultureInfo.InvariantCulture, $"session {session.Percent:0.#}%"));
+        }
+
+        if (limits.Week is { } week)
+        {
+            parts.Add(string.Create(CultureInfo.InvariantCulture, $"week {week.Percent:0.#}%"));
+        }
+
+        var age = now - sampledAt;
+        var ago = age < TimeSpan.FromMinutes(1) ? "just now" : FormatDuration(age) + " ago";
+        return ConsoleMarkup.Colored("grey", $"Last reading from {source} at {sampledAt.ToLocalTime():MM-dd HH:mm} ({ago}): {string.Join(" · ", parts)}.");
     }
 
     /// <summary>
