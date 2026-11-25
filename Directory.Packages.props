@@ -5,7 +5,7 @@
   <ItemGroup>
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="GitHubReleaseUpdater" Version="0.7.1" />
-    <PackageVersion Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.0.5" />
+    <PackageVersion Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.2.0" />
     <!-- Microsoft.Extensions.* and System.Runtime.Caching are kept on 10.x; Dependabot skips their major bumps (see .github/dependabot.yml). -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.15" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.15" />
